@@ -1,0 +1,10 @@
+sudo apt update
+sudo apt -y upgrade
+sudo apt -y install git build-essential zlib1g-dev libfftw3-dev libboost-all-dev apache2
+git clone --recurse-submodules https://github.com/uNetworking/uWebSockets
+cd uWebSockets
+make
+sudo make install
+cd ..
+sudo cp ./uWebSockets/uSockets/src/libusockets.h /usr/local/include
+sudo cp ./uWebSockets/uSockets/uSockets.a /usr/local/lib

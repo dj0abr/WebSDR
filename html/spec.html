@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FFT Data Visualization</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Set canvas container width to 100% */
+        #chart-container {
+            width: 100%;
+            max-width: 100%; /* Ensure it doesn't overflow */
+            height: 300px; /* Fixed height */
+        }
+
+        canvas {
+            display: block; /* Ensure no extra spacing */
+            width: 100%; /* Full width */
+            height: 100%; /* Inherit height from container */
+        }
+    </style>
+</head>
+<body>
+
+<h1>Web SDR für DB0SL</h1>
+<div id="chart-container">
+    <canvas id="fftChart"></canvas>
+</div>
+
+<script>
+    const socket = new WebSocket('ws://localhost:9001');
+    socket.binaryType = 'arraybuffer';  // Expect binary data
+
+    // Calculate the X-axis labels based on the given formula
+    const labels = Array.from({ length: 1024 }, (_, i) => (((i * 234.375) + 28400000) / 1000).toFixed(3));
+
+    // Set up the chart with Chart.js
+    const ctx = document.getElementById('fftChart').getContext('2d');
+    const fftChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: labels,  // X-axis labels according to the formula
+        datasets: [{
+            label: 'FFT Data',
+            data: new Array(1024).fill(0),  // Placeholder data
+            borderColor: 'rgba(55, 110, 255, 1)',
+            borderWidth: 1,
+            fill: false,
+            pointRadius: 0,  // Remove the circles at each data point
+            pointHoverRadius: 0,  // Remove hover effect on circles
+        }],
+    },
+    options: {
+        responsive: true,           // Ensure chart resizes with window width
+        maintainAspectRatio: false, // Disable aspect ratio to allow height customization
+        plugins: {
+            legend: {
+                display: false,    // Disable the legend to hide the "FFT Data" label
+            }
+        },
+        scales: {
+            x: {
+                display: true,
+                title: { text: 'Frequency (kHz)', display: true }  // Label changed to Frequency (kHz)
+            },
+            y: {
+                display: true,
+                title: { text: 'Amplitude (dBm)', display: true },
+                min: -140,  // Y-axis minimum range
+                max: -60,   // Y-axis maximum range
+                ticks: {
+                    stepSize: 10  // Optionally, control tick spacing
+                }
+            }
+        }
+    }
+});
+
+
+    // Update the chart with incoming FFT data
+    socket.onmessage = (event) => {
+        const fftData = new Float32Array(event.data);
+
+        // Update the chart data
+        fftChart.data.datasets[0].data = Array.from(fftData);
+        fftChart.update();
+    };
+
+    socket.onopen = () => console.log('WebSocket connected!');
+    socket.onclose = () => console.log('WebSocket disconnected');
+    socket.onerror = (error) => console.error('WebSocket error:', error);
+</script>
+
+</body>
+</html>

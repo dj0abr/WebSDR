@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop">
+  <id>org.dj0abr.websdr</id> <!-- Changed to your desired RDNS format -->
+  <name>WebSDR</name>
+  <summary>WebSDR software for radio enthusiasts</summary>
+  <description>
+    <p>kwWebRX is a WebSDR software for use with various radio hardware. It enables users to tune into different frequencies and listen to live radio streams.</p>
+  </description>
+  <metadata_license>CC0-1.0</metadata_license>
+  <provides>
+    <binary>kwWebRX</binary>
+  </provides>
+  <launchable type="desktop-id">websdr.desktop</launchable>
+  <categories>
+    <category>Audio</category>
+    <category>AudioVideo</category>
+    <category>HamRadio</category>
+  </categories>
+  <content_rating type="oars-1.1">
+    <violence>none</violence>
+    <sex>none</sex>
+    <language>none</language>
+    <social>none</social>
+    <drugs>none</drugs>
+    <gambling>none</gambling>
+    <alcohol>none</alcohol>
+  </content_rating>
+</component>

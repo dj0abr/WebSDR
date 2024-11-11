@@ -1,0 +1,1439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web SDR RX</title>
+    <style>
+        .titlecontainer {
+            display: flex;
+            align-items: center;  /* Vertically center the content */
+        }
+
+        .title {
+            font-size: 28px;
+            font-weight: bold;
+            font-family: Arial, sans-serif;
+        }
+
+        .title1 {
+            font-size: 8px;  /* Adjust the size for the text next to the title */
+            margin-left: 20px;  /* Add some spacing between the two divs */
+            margin-right: 30px;
+        }
+
+        .freq {
+            font-size: 24px;
+            font-weight: bold;
+            font-family: Arial, sans-serif;
+            color: blue;
+            padding-right: 10px;
+        }
+
+        .bandlabel {
+            font-size: 16px;
+            font-weight: bold;
+            font-family: Arial, sans-serif;
+            color: black;
+            padding-top: 14px;
+            padding-left: 15px;
+            margin-right: 10px;
+        }
+
+        .audiolabel {
+            font-size: 16px;
+            font-weight: bold;
+            font-family: Arial, sans-serif;
+            color: black;
+            padding-top: 14px;
+            padding-left: 10px;
+        }
+
+        .vollabel {
+            font-size: 16px;
+            font-weight: bold;
+            font-family: Arial, sans-serif;
+            padding-top: 12px;
+            padding-left: 10px;
+        }
+
+        .infocontainer {
+            display: flex;
+            padding: 20px;
+            gap: 20px;
+            max-width: 1024px;
+        }
+
+        .help {
+            font-size: 12px;
+            padding-top: 20px;
+            max-width: 400px; /* Sets a width limit for the help section */
+        }
+
+        .infocontent {
+            flex-grow: 1; /* Makes this div take up remaining space */
+            padding-top: 20px;
+            font-size: 18px;
+        }
+
+        /* General canvas styles */
+        .canvas-container {
+            position: relative;
+            width: 1024px;
+            height: 300px;  /* Set an appropriate height for each canvas container */
+        }
+
+        /* Set the specific height for the second container */
+        .canvas-container.waterfall2 {
+            height: 200px; /* Adjust to the height of the second canvas */
+        }
+
+        /* Ensure that the overlay canvas is stacked on top of the waterfall canvas */
+        canvas {
+            position: absolute;  /* Allows precise positioning inside the container */
+            top: 0;              /* Align at the top */
+            left: 0;             /* Align at the left */
+        }
+
+        /* Overlay canvases should not capture events and be above */
+        #overlayCanvas, #overlayCanvas2 {
+            pointer-events: none;  /* Make the overlay non-interactive */
+            z-index: 10;           /* Ensure it is on top */
+        }
+
+        /* Waterfall canvases should be below the overlay canvases */
+        #waterfallCanvas, #waterfallCanvas2 {
+            z-index: 1;
+        }
+
+        /* Style for the space between canvases, for label elements */
+        .gui-space {
+            text-align: center;
+            color: #333;
+            font-size: 18px;
+            height: 50px; /* Ensure proper space for the xlabelCanvas */
+            display: flex;  /* Use flexbox to align the canvas */
+            justify-content: center;
+            align-items: center;
+            position: relative;  /* Position relative for proper stacking */
+        }
+
+        .gui-space1 {
+            text-align: center;
+            color: #333;
+            font-size: 18px;
+            height: 60px; /* Ensure proper space for the xlabelCanvas */
+            display: flex;  /* Use flexbox to align the canvas */
+            justify-content: center;
+            align-items: center;
+            position: relative;  /* Position relative for proper stacking */
+        }
+
+        /* Ensure xlabelCanvas is centered and behaves like a block element */
+        #xlabelCanvas {
+            display: block;
+        }
+
+        /* Style for the header section to place GUI elements and title */
+        .header {
+            width: 1024px;
+            padding: 10px 0; /* Add some padding above and below */
+            text-align: left;
+            font-size: 24px;
+            color: #333;
+        }
+
+        .gui-elements {
+            display: flex;
+            justify-content: left; /* Center the GUI elements */
+            margin-top: 10px; /* Add some space between the title and GUI elements */
+        }
+
+        /* Style for individual GUI elements like buttons or inputs */
+        .gui-elements button, .gui-elements input {
+            margin: 0 10px; /* Add horizontal space between elements */
+            font-size: 12px;
+        }
+
+        /* Modern ComboBox styling */
+        select {
+            padding: 10px;
+            font-size: 16px;
+            font-family: Arial, sans-serif;
+            border: none; /* Remove default border */
+            border-radius: 8px; /* Softer, rounded corners */
+            background: linear-gradient(145deg, #ffffff, #f0f0f0); /* Light gradient */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2), inset 0 0 0 2px rgba(60, 60, 60, 0.6); /* Darker border and shadow */
+            transition: box-shadow 0.3s, background-color 0.3s; /* Smooth transition for hover effects */
+            color: #333;
+            outline: none;
+            cursor: pointer;
+            appearance: none; /* Remove default dropdown arrow */
+            position: relative;
+            padding-right: 30px; /* Space for custom arrow */
+        }
+
+        /* ComboBox hover effect with darker shadow */
+        select:hover {
+            background: linear-gradient(145deg, #f0f0f0, #e0e0e0);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3), inset 0 0 0 2px rgba(60, 60, 60, 0.7); /* Darker inner shadow on hover */
+        }
+
+        /* ComboBox focus effect with more contrast */
+        select:focus {
+            background: #f5f5f5; /* Subtle change on focus */
+            box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.4), inset 0 0 0 2px rgba(60, 60, 60, 0.8); /* Soft blue outline with dark inner border */
+        }
+
+
+        /* Add a custom arrow for the ComboBox */
+        select::after {
+            content: '▼'; /* Unicode character for dropdown arrow */
+            font-size: 12px;
+            color: #888;
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            pointer-events: none; /* Arrow doesn't interfere with ComboBox interactions */
+        }
+
+        .bar-container {
+            width: 15px;
+            height: 40px;
+            background-color: #ddd;
+            border-radius: 20px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0px 3px 6px rgba(0, 0, 0, 0.2);
+        }
+
+        .bar-fill {
+            width: 100%;
+            height: 0%;
+            background: linear-gradient(180deg, #ff0000, #ffff00);
+            transition: height 0.5s ease-in-out;
+            position: absolute;
+            bottom: 0;
+        }
+
+        /* Input field styling */
+        .login-input {
+            padding: 4px;
+            margin: 4px 0;
+            font-size: 16px;
+            font-weight: bold;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            outline: none;
+            margin-left: 5px;
+            width: 20%;
+        }
+
+        /* Add focus effect on input */
+        .login-input:focus {
+            border-color: #4a90e2;
+            box-shadow: 0 0 5px rgba(74, 144, 226, 0.4);
+        }
+        .login-input:invalid {
+            background-color: red;
+        }
+
+        /* Hamburger menu icon styling */
+        .menu-icon {
+            display: flex;
+            flex-direction: column;
+            cursor: pointer;
+            width: 25px;       /* Breite der Linien */
+            height: 18px;      /* Gesamthöhe reduzieren */
+            margin-top: 12px;
+        }
+
+        .menu-icon div {
+            width: 100%;               /* Volle Breite für alle Striche */
+            height: 3px;               /* Höhe der einzelnen Linien */
+            background-color: #333;    /* Farbe der Linien */
+        }
+
+        /* Individuelle Abstände für die oberen und unteren Linien */
+        .menu-icon div:first-child {
+            margin-bottom: 4px;  /* Abstand unter der ersten Linie */
+        }
+
+        .menu-icon div:last-child {
+            margin-top: 4px;     /* Abstand über der letzten Linie */
+        }
+
+        /* Positioning context for menu and dropdown */
+        .menu-container {
+            position: relative; /* Makes the dropdown position relative to this container */
+            display: inline-block; /* Ensures it doesn’t take up full width */
+            margin-left: 30px;
+        }
+
+        /* Position the menu absolutely to prevent layout shifts */
+        .dropdown-menu {
+            display: none; /* Initially hidden */
+            position: absolute;
+            top: 100%; /* Position just below the hamburger icon */
+            right: 0; /* Align to the right edge of the container */
+            background-color: #fff;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            z-index: 100; /* Keep it above other content */
+            width: max-content; /* Automatically adjust to fit content */
+            min-width: 200px; /* Optional: minimum width to avoid being too narrow */
+        }
+
+        .dropdown-menu .menu-item:last-child {
+            padding-bottom: 10px; /* Add space below the last menu item */
+        }
+
+        /* Styling for each menu item (label + select) */
+        .menu-item {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+            font-size: 16px;
+            font-weight: bold;
+            font-family: Arial, sans-serif;
+            gap: 20px;
+        }
+
+        /* Style for the OK button */
+        .ok-button {
+            margin-top: 10px;
+            width: 90%;
+            padding: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            color: white;
+            background-color: #4CAF50;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .ok-button:hover {
+            background-color: #45a049; /* Darken on hover */
+        }
+
+</style>
+</head>
+<body>
+
+    <!-- Header section with title and GUI elements -->
+<div class="header">
+    <div class="titlecontainer">
+        <div class="title">DB0SL Web SDR Receiver</div>
+        <div class="title1">SDRplay RSP1A, by DJ0ABR</div>
+        <input type="text" class="login-input" name="username" style="text-transform: uppercase;" id="username" placeholder="Rufzeichen" required minlength="3">
+        <input type="password" class="login-input" name="password" id="password" placeholder="Passwort" required style="visibility: hidden;">    
+    </div>
+    <div class="gui-elements">
+        <div class="freq" id="freq">Frequency</div>
+
+        <div class="bar-container">
+            <div class="bar-fill" id="barFill"></div>
+        </div>
+
+        <label class="audiolabel" for="audioCheckbox">Audio ON/off</label>
+        <input type="checkbox" id="audioCheckbox">
+
+        <label class="bandlabel" for="bandBox">Band:</label>
+        <select id="bandBox" onchange="updateBand()">
+            <option value="630">630m</option>
+            <option value="160">160m</option>
+            <option value="80">80m</option>
+            <option value="60">60m</option>
+            <option value="40">40m</option>
+            <option value="30">30m</option>
+            <option value="20">20m</option>
+            <option value="17">17m</option>
+            <option value="15">15m</option>
+            <option value="12">12m</option>
+            <option value="11">11m-CB</option>
+            <option value="280">10m 28 MHz</option>
+            <option value="285">10m 28,5 MHz</option>
+            <option value="290">10m 29 MHz</option>
+            <option value="6">6m</option>
+            <option value="4">4m</option>
+            <option value="144">144,0</option>
+            <option value="145">144,5</option>
+            <option value="146">145,0</option>
+            <option value="147">145,5</option>
+            <option value="438">438,8</option>
+            <option value="446">PMR446</option>
+        </select>
+
+        <label class="bandlabel" for="modeBox">Mode:</label>
+        <select id="modeBox" onchange="updateMode()">
+            <option value="1">USB</option>
+            <option value="0">LSB</option>
+            <option value="2">FM</option>
+        </select>
+
+        <label for="volumeControl" class="vollabel">Lautstärke:</label>
+        <input type="range" id="volumeControl" min="0" max="1" step="0.01" value="0.5">
+
+        <!-- Container for Hamburger icon and dropdown menu -->
+        <div class="menu-container">
+            <div class="menu-icon" onclick="toggleMenu()">
+                <div></div>
+                <div></div>
+                <div></div>
+            </div>
+        
+            <!-- Dropdown Menu -->
+            <div id="dropdownMenu" class="dropdown-menu">
+                <div class="menu-item">
+                    <label for="nffilter">NF Filter:</label>
+                    <select id="nffilter" onchange="updateFilter()">
+                        <option value="500">500 Hz</option>
+                        <option value="1800">1.8 kHz</option>
+                        <option value="2700">2.4 kHz</option>
+                        <option value="3600">3.6 kHz</option>
+                    </select>
+                </div>
+                
+                <!-- OK Button -->
+                <button onclick="confirmSettings()" class="ok-button">OK</button>
+            </div>
+        </div>        
+    </div>
+</div>
+
+<div class="gui-space">
+    <canvas id="label480Canvas" width="1024" height="50"></canvas>
+</div>
+
+<!-- First set of canvas elements -->
+<div class="canvas-container">
+    <canvas id="waterfallCanvas" width="1024" height="300"></canvas>
+    <canvas id="overlayCanvas" width="1024" height="300"></canvas>
+</div>
+
+<!-- Space for labels -->
+<div class="gui-space1">
+    <canvas id="xlabelCanvas" width="1024" height="60"></canvas>
+</div>
+
+<!-- Second set of canvas elements -->
+<div class="canvas-container waterfall2">
+    <canvas id="waterfallCanvas2" width="1024" height="200"></canvas>
+    <canvas id="overlayCanvas2" width="1024" height="200"></canvas>
+</div>
+
+<div class="infocontainer">
+    <div>
+        <p class="help" style="color: red; font-weight: bold;">Bandumschaltung nur möglich bei EINEM eingeloggten Benutzer!</p>
+        <strong>Tuning im oberen Wasserfall:</strong><br>
+        Mausklick ... grobe Frequenzwahl<br>
+        Feinabstimmung:<br>
+        100 Hz ... Mausrad<br>
+        1 kHz .... Mausrad + Shift Taste<br>
+        12,5 kHz . Mausrad + Shift + Alt Taste<br>
+        <br>
+        <strong>Tuning im unteren Wasserfall:</strong><br>
+        Mausklick ... USB link und LSB rechts vom Signal klicken<br>
+        10 Hz ... Mausrad
+    </div>
+
+    <div class="infocontent">
+        <p id="infocontent"></p>
+    </div>
+</div>
+
+<script>
+    let fftData = new Float32Array(1024);  // Initialize with dummy values
+    let ssbData = new Float32Array(1024);  // Initialize with dummy values
+    let configData = new Float32Array(1024);  // Initialize with dummy values
+    let minValue = -130;  // Default minimum value for normalization
+    let maxValue = -85;   // The brightest color will be clamped to -85 dBm
+    let socket;
+    let reconnectInterval = 2000;  // Reconnect every 2 seconds
+    let usblsb = 1;
+    let runAudio = 0;
+    let audioQueue = [];
+    let bandchanged = -1;
+    let bigFFTstartQRG = 14000000;
+    let bigFFTendQRG = 14350000;
+    let freqOffset = 0;
+    let usernumber = 0;
+
+    // Get canvas contexts
+    const label480Canvas = document.getElementById('label480Canvas');
+    const label480Ctx = label480Canvas.getContext('2d');
+
+    const waterfallCanvas = document.getElementById('waterfallCanvas');
+    const waterfallCtx = waterfallCanvas.getContext('2d', { willReadFrequently: true });  // Enable the willReadFrequently flag
+    
+    const overlayCanvas = document.getElementById('overlayCanvas');
+    const overlayCtx = overlayCanvas.getContext('2d');
+
+    const waterfallCanvas2 = document.getElementById('waterfallCanvas2');
+    const waterfallCtx2 = waterfallCanvas2.getContext('2d', { willReadFrequently: true });
+    
+    const overlayCanvas2 = document.getElementById('overlayCanvas2');
+    const overlayCtx2 = overlayCanvas2.getContext('2d');
+
+    const labelCanvas = document.getElementById('xlabelCanvas');
+    const labelCtx = labelCanvas.getContext('2d');
+
+    labelCtx.fillStyle = 'black';
+    labelCtx.fillRect(0, 0, labelCanvas.width, labelCanvas.height);
+    waterfallCtx.fillStyle = 'lightgrey';
+    waterfallCtx.fillRect(0, 0, waterfallCanvas.width, waterfallCanvas.height);
+    waterfallCtx2.fillStyle = 'lightgrey';
+    waterfallCtx2.fillRect(0, 0, waterfallCanvas2.width, waterfallCanvas2.height);
+    drawTuningLine();
+
+    function setupWebSocket() {
+        // Aktuelle Domain ohne Subdomain extrahieren
+        const fullHostname = window.location.hostname;
+        
+        // Extrahiert die Hauptdomain
+        const domainParts = fullHostname.split('.');
+        const mainDomain = domainParts.slice(-2).join('.');  // Die letzten zwei Teile, z.B. "dj0abr.de"
+
+        // WebSocket-URL basierend auf der Hauptdomain erstellen
+        const socketUrl = `wss://ws.${mainDomain}`;
+
+        socket = new WebSocket(socketUrl);
+
+        socket.binaryType = 'arraybuffer';  // Expect binary data
+
+        socket.onopen = () => {
+            console.log('WebSocket connected!');
+        };
+
+        socket.onmessage = (event) => {
+            updateFFT(event.data);  // When data is received, update and redraw
+        };
+
+        socket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+
+        socket.onclose = () => {
+            console.log('WebSocket disconnected. Attempting to reconnect...');
+            retryConnection();
+        };
+    }
+
+    function retryConnection() {
+        setTimeout(() => {
+            console.log(`Reconnecting... `);
+            setupWebSocket();  // Re-attempt connection
+        }, reconnectInterval);
+    }
+
+    // Call setupWebSocket initially to establish the connection
+    setupWebSocket();
+
+    // Scaling function that maps a value from 0-1024 to the canvas width
+    function scaleX(value) {
+        return (value / 1024) * waterfallCanvas.width;
+    }
+
+    // Function to calculate the noise floor based on current FFT data
+    function calculateNoiseFloor(fftData, thresholdRatio = 0.5) {
+        // Sort FFT data to identify low values for noise floor calculation
+        let sortedData = [...fftData].sort((a, b) => a - b);
+        
+        // Pick a threshold ratio to skip the stronger values; for example, 50% means we ignore the top 50%
+        let noiseFloorIndex = Math.floor(sortedData.length * thresholdRatio);
+        
+        // Calculate the average of values below the threshold to represent the noise floor
+        let noiseFloor = sortedData.slice(0, noiseFloorIndex).reduce((acc, val) => acc + val, 0) / noiseFloorIndex;
+        
+        return noiseFloor;
+    }
+
+    // Function to update FFT data and draw it
+    let linecnt = 0;
+    function draw() {
+        // Shift down the current pixels by 1 row to make space for new data
+        const imageData = waterfallCtx.getImageData(0, 0, waterfallCanvas.width, waterfallCanvas.height);
+        waterfallCtx.putImageData(imageData, 0, 1);
+
+        // If the bandchanged is not -1, draw a white line across the top row
+        if (bandchanged !== -1 && linecnt == 0) {
+            waterfallCtx.fillStyle = 'white';
+            waterfallCtx.fillRect(0, 0, waterfallCanvas.width, 1);  // Draw a white horizontal line
+            linecnt = 1;
+        } else {
+            // Otherwise, draw the FFT data on the top row as usual
+
+            // Find the minimum value in the current FFT data
+            let noiseFloor = calculateNoiseFloor(fftData);
+            minValue = noiseFloor;
+
+            // Draw the new FFT data on the top row
+            for (let i = 0; i < fftData.length; i++) {
+                let value = fftData[i];
+
+                // Convert the FFT value to an RGB color based on its range
+                let color = valueToRGBColor(value, minValue, maxValue);
+                waterfallCtx.fillStyle = color;
+                waterfallCtx.fillRect(scaleX(i), 0, 2, 1);  // Draw 1 pixel in the top row at position i
+            }
+
+            if(linecnt != 0) {
+                if(++linecnt >= 17) {
+                    waterfallCtx.font = 'bold 14px Arial';  // You can adjust the font size if needed
+                    let text = bandchanged + " m";
+                    if(bandchanged == 70) text = bandchanged + " cm";
+                    if(bandchanged == 280) text = "10m 28-28,5 MHz";
+                    if(bandchanged == 285) text = "10m 28,5-29 MHz";
+                    if(bandchanged == 290) text = "10m 29,1-29,6 MHz";
+                    if(bandchanged == 144) text = "2m 144-144,5 MHz";
+                    if(bandchanged == 145) text = "2m 144,5-145 MHz";
+                    if(bandchanged == 146) text = "2m 145-145,5 MHz";
+                    if(bandchanged == 147) text = "2m 145,5-146 MHz";
+                    if(bandchanged == 438) text = "2m 438,8-439,3 MHz";
+                    if(bandchanged == 0) text = "LSB";
+                    if(bandchanged == 1) text = "USB";
+                    if(bandchanged == 2) text = "FM";
+                    let textWidth = waterfallCtx.measureText(text).width;
+                    let textHeight = 16; // Approximate height of the text, can be adjusted
+                    waterfallCtx.fillStyle = 'black';
+                    waterfallCtx.fillRect(0, 0, textWidth + 10, textHeight);  // Add some padding for readability
+                    waterfallCtx.fillStyle = 'white';
+                    waterfallCtx.fillText(text, 5, 14);  // Draw the number 5px from the left, 14px down
+                    linecnt = 0;
+                    bandchanged = -1;
+                }
+            }
+        }
+
+        // get dBm of tuned frequency (ssb range)
+        // getPixelIndex(freqOffset)
+        let dBm = -200;
+        const curidx = getPixelIndex(freqOffset);
+        for (var i = -15; i < 15; i++) {
+            let idx = curidx + i;
+            if (idx < 0 || idx >= 1024) continue;
+            if (fftData[idx] > dBm)
+                dBm = fftData[idx];
+        }
+
+        updateSignalStrength(dBm);
+    }
+
+    // Function to update lower FFT data and draw it
+    function draw_ssb() {
+        // Shift down the current pixels by 1 row to make space for new data
+        const imageData = waterfallCtx2.getImageData(0, 0, waterfallCanvas2.width, waterfallCanvas2.height);
+        waterfallCtx2.putImageData(imageData, 0, 1);
+
+        // Find the minimum value in the current FFT data
+        let noiseFloor = calculateNoiseFloor(fftData);
+        minValue = noiseFloor - 8;
+
+        // Draw the new FFT data on the top row
+        for (let i = 0; i < ssbData.length; i++) {
+            let value = ssbData[i];
+
+            // Convert the FFT value to an RGB color based on its range
+            let color = valueToRGBColor(value, minValue, maxValue);
+            waterfallCtx2.fillStyle = color;
+            waterfallCtx2.fillRect(i, 0, 1, 1);  // Draw 1 pixel in the top row at position i
+        }
+    }
+
+    // vertical averaging
+    // A buffer to hold multiple lines for averaging (let's average over 3 lines)
+    let numLinesToAverage = 3;
+    let linesBuffer = [];  // Array to hold the past lines of data
+
+    // Function to add a new line to the buffer and compute the averaged line
+    function processWaterfallLine(fftData) {
+        // Add the new line to the buffer
+        linesBuffer.push(fftData);
+
+        // If the buffer exceeds the number of lines to average, remove the oldest one
+        if (linesBuffer.length > numLinesToAverage) {
+            linesBuffer.shift();
+        }
+
+        // Compute the average of the lines in the buffer
+        let averagedLine = new Float32Array(fftData.length);
+        
+        for (let i = 0; i < fftData.length; i++) {
+            let sum = 0;
+            for (let j = 0; j < linesBuffer.length; j++) {
+                sum += linesBuffer[j][i];
+            }
+            averagedLine[i] = sum / linesBuffer.length;
+        }
+
+        return averagedLine;
+    }
+
+    let linesBufferSSB = [];  // Array to hold the past lines of data
+
+    // Function to add a new line to the buffer and compute the averaged line
+    function processWaterfallLineSSB(fftData) {
+        // Add the new line to the buffer
+        linesBufferSSB.push(fftData);
+
+        // If the buffer exceeds the number of lines to average, remove the oldest one
+        if (linesBufferSSB.length > numLinesToAverage) {
+            linesBufferSSB.shift();
+        }
+
+        // Compute the average of the lines in the buffer
+        let averagedLine = new Float32Array(fftData.length);
+        
+        for (let i = 0; i < fftData.length; i++) {
+            let sum = 0;
+            for (let j = 0; j < linesBufferSSB.length; j++) {
+                sum += linesBufferSSB[j][i];
+            }
+            averagedLine[i] = sum / linesBufferSSB.length;
+        }
+
+        return averagedLine;
+    }
+
+    // Function to handle new FFT data received over WebSocket
+    let idvalue;
+    let authentication = true;
+    let first = true;
+
+    function updateFFT(data) {
+        if (data.byteLength === 4100 || data.byteLength === 1028) {
+            let dataView = new DataView(event.data); // Create a DataView from the ArrayBuffer
+            idvalue = dataView.getFloat32(0, true);
+
+            if(idvalue < 0.5 && idvalue > -0.5) {
+                // 480kHz waterfall on top
+                fftData = new Float32Array(data, 4, 1024); // Store the remaining 1024 values
+                fftData = processWaterfallLine(fftData);
+                draw();
+            }
+
+            if(idvalue < 1.5 && idvalue > 0.5) {
+                // 48kHz waterfall on bottom
+                ssbData = new Float32Array(data, 4, 1024); // Store the remaining 1024 values
+                ssbData = processWaterfallLineSSB(ssbData);
+                draw_ssb();
+            }
+
+            if(idvalue < 2.5 && idvalue > 1.5) {
+                // configuration data
+                authentication = true;
+                configData = new Float32Array(data, 4, 1024); // Store the remaining 1024 values
+                //console.log("Tuned to: " + configData[0]);
+                handle_config(configData);
+            }
+
+            if(idvalue < 3.5 && idvalue > 2.5) {
+                // Audio Samples
+                authentication = true;
+                audioData = new Float32Array(data, 4, 1024); // Store the remaining 1024 values
+                //console.log("y",idvalue,"runAudio",runAudio);
+                if(runAudio == 1) {
+                    audioQueue.push(audioData);
+                }
+            }
+
+            if(idvalue < 4.5 && idvalue > 3.5) {
+                floatArray = new Float32Array(data, 4, 1024);
+                let userlist = "";
+    
+                for (let i = 0; i < floatArray.length; i++) {
+                    const value = floatArray[i];
+                    if (value === 0) break;
+                    userlist += String.fromCharCode(Math.round(value)); // Round to ensure integer value
+                }
+                if (authentication) {
+                    document.getElementById("infocontent").innerHTML = "aktuell eingeloggte Benutzer:<BR>" + userlist.toUpperCase();
+                    document.getElementById("infocontent").style.color = "black";
+                } else {
+                    document.getElementById("infocontent").innerHTML = "<b>Bitte mit Rufzeichen und Passwort identifizieren!</b>";
+                    document.getElementById("infocontent").style.color = "red";
+                }
+            }
+
+            if(idvalue < 5.5 && idvalue > 4.5) {
+                //console.log("authentication failed");
+                authentication = false;
+            }
+        } else {
+            console.error("Data length is not 4100", data.byteLength);
+        }
+    }
+
+    function roundToNearest(a) {
+        const options = [1000, 5000, 12500, 25000];
+        let closest = options[0];
+        let minDifference = Math.abs(a - options[0]);
+
+        for (let i = 1; i < options.length; i++) {
+            let difference = Math.abs(a - options[i]);
+            if (difference < minDifference) {
+                minDifference = difference;
+                closest = options[i];
+            }
+        }
+
+        return closest;
+    }
+
+    // make x labels for upper waterfall
+    function makeLabels480(configData) {
+        label480Ctx.fillStyle = 'black';
+        label480Ctx.fillRect(0, 0, label480Canvas.width, label480Canvas.height);
+
+        // Set font properties for the labels
+        label480Ctx.font = "10px Arial";
+        label480Ctx.fillStyle = "yellow";
+        label480Ctx.textAlign = "center";
+        label480Ctx.textBaseline = "middle"; // Center the text vertically when rotated
+
+        // Frequency step (25 kHz)
+        let step = (bigFFTendQRG - bigFFTstartQRG) / 20;
+        step = roundToNearest(step);
+
+        // Total number of pixels and frequency range in Hz
+        const totalPixels = 1024;
+        const totalFreqRange = bigFFTendQRG - bigFFTstartQRG;
+
+        // Calculate pixels per Hz
+        const pixelsPerHz = totalPixels / totalFreqRange;
+
+        // Loop through frequencies from left (bigFFTstartQRG) to right (bigFFTendQRG)
+        for (let freq = bigFFTstartQRG; freq <= bigFFTendQRG; freq += step) {
+            let x = (freq - bigFFTstartQRG) * pixelsPerHz;
+            if(freq == bigFFTstartQRG) x += 5;
+            if(freq == bigFFTendQRG) x -= 5;
+            const freqMHz = (freq / 1e6).toFixed(3); // Convert frequency to MHz for display
+
+            label480Ctx.save();
+            label480Ctx.translate(x, label480Canvas.height / 2);
+            label480Ctx.rotate(-Math.PI / 2);
+            label480Ctx.fillText(freqMHz, -7, 0);
+            label480Ctx.restore();
+        }
+    }
+
+    // make x labels for lower waterfall
+    function makeLabels48(configData) {
+        let tunedfrequency = configData[0];
+        const shiftfrequency = configData[1];
+
+        tunedfrequency += shiftfrequency;
+
+        const tunedfrequencyMHz = (tunedfrequency / 1e6).toFixed(6);
+
+        // Split the frequency into integer and decimal parts
+        const [integerPart, decimalPart] = tunedfrequencyMHz.split('.');
+
+        // Combine the formatted integer part and decimal part
+        const formattedFrequency = integerPart + ',' + decimalPart.slice(0,3) + "." + decimalPart.slice(3,6);
+
+        // Write the formatted result into the div with id "freq"
+        document.getElementById("freq").innerText = formattedFrequency + " MHz";
+
+
+        //labelCtx.clearRect(0, 0, labelCanvas.width, labelCanvas.height);
+        labelCtx.fillStyle = 'black';
+        labelCtx.fillRect(0, 0, labelCanvas.width, labelCanvas.height);
+
+        draw_connlines();
+
+        // Set font properties for the labels
+        labelCtx.font = "10px Arial";
+        labelCtx.fillStyle = "yellow";
+        labelCtx.textAlign = "center";
+        labelCtx.textBaseline = "middle"; // Center the text vertically when rotated
+
+        // Frequency range   
+        const freqRange = 24000; // ±24 kHz from the tuned frequency
+        const minFreq = tunedfrequency - freqRange;
+        const maxFreq = tunedfrequency + freqRange;
+
+        // Frequency step (2.5 kHz)
+        const step = 2500; // 2.5 kHz
+
+        // Total number of pixels and frequency range in Hz
+        const totalPixels = 1024;
+        const totalFreqRange = 2 * freqRange; // 480 kHz total (24 kHz left + 24 kHz right)
+
+        // Calculate pixels per Hz
+        const pixelsPerHz = totalPixels / totalFreqRange; // pixels per Hz
+
+        // Draw the tuned frequency in the middle of the canvas
+        const middleX = totalPixels / 2; // X-coordinate for the center
+        labelCtx.save();
+        labelCtx.translate(middleX, labelCanvas.height / 2);
+        labelCtx.rotate(-Math.PI / 2);
+        labelCtx.fillText(tunedfrequencyMHz, -4, 0); // Tuned frequency in the middle
+        labelCtx.restore();
+
+        // Start from the center and move outward
+        let leftFreq = tunedfrequency - step;
+        let rightFreq = tunedfrequency + step;
+        
+        // Loop through the frequencies symmetrically outward
+        while (leftFreq >= minFreq || rightFreq <= maxFreq) {
+            if (leftFreq >= minFreq) {
+                // Draw the left frequency label
+                const xLeft = (leftFreq - minFreq) * pixelsPerHz;
+                const leftFreqMHz = (leftFreq / 1e6).toFixed(6);
+                labelCtx.save();
+                labelCtx.translate(xLeft, labelCanvas.height / 2);
+                labelCtx.rotate(-Math.PI / 2);
+                labelCtx.fillText(leftFreqMHz, -4, 0);
+                labelCtx.restore();
+                leftFreq -= step; // Move to the next left frequency
+            }
+
+            if (rightFreq <= maxFreq) {
+                // Draw the right frequency label
+                const xRight = (rightFreq - minFreq) * pixelsPerHz;
+                const rightFreqMHz = (rightFreq / 1e6).toFixed(6);
+                labelCtx.save();
+                labelCtx.translate(xRight, labelCanvas.height / 2);
+                labelCtx.rotate(-Math.PI / 2);
+                labelCtx.fillText(rightFreqMHz, -4, 0);
+                labelCtx.restore();
+                rightFreq += step; // Move to the next right frequency
+            }
+        }
+    }
+
+    function getHamRadioBand(frequency) {
+        if (frequency >= 400000 && frequency <= 900000) return 630;
+        if (frequency >= 1800000 && frequency <= 3000000) return 160;
+        if (frequency >= 3500000 && frequency <= 4000000) return 80;
+        if (frequency >= 4500000 && frequency <= 6000000) return 60;
+        if (frequency >= 7000000 && frequency <= 7300000) return 40;
+        if (frequency >= 10000000 && frequency <= 11000000) return 30;
+        if (frequency >= 14000000 && frequency <= 14350000) return 20;
+        if (frequency >= 18000000 && frequency <= 19000000) return 17;
+        if (frequency >= 21000000 && frequency <= 21450000) return 15;
+        if (frequency >= 24000000 && frequency <= 25500000) return 12;
+        if (frequency >= 26000000 && frequency <= 27900000) return 11;
+        if (frequency >= 28000000 && frequency <= 28499000) return 280
+        if (frequency >= 28500000 && frequency <= 29000000) return 285;
+        if (frequency >= 29100000 && frequency <= 29700000) return 290;
+        if (frequency >= 50000000 && frequency <= 54000000) return 6;
+        if (frequency >= 70000000 && frequency <= 72000000) return 4;
+        if (frequency >= 144000000 && frequency <= 144500000) return 144;
+        if (frequency >= 144500000 && frequency <= 145000000) return 145;
+        if (frequency >= 145000000 && frequency <= 145500000) return 146;
+        if (frequency >= 145500000 && frequency <= 146000000) return 147;
+        if (frequency >= 438800000 && frequency <= 439300000) return 438;
+        if (frequency >= 430000000 && frequency <= 440000000) return 70;
+        if (frequency >= 441000000 && frequency <= 460000000) return 446;
+
+        return null;
+    }
+
+    function handle_config(configData) {
+        // big waterfall start QRG
+        bigFFTstartQRG = configData[3];
+
+        // big waterfall end QRG
+        bigFFTendQRG = configData[4];
+
+        // tuned BAND
+        let fidx = getHamRadioBand(configData[0]);
+        document.getElementById('bandBox').value = fidx;
+
+        // shift to the band start qrg
+        // configData[1]: -240000 ... +240000
+        // FreqOffset: offset in Hz from band start
+        //console.log("qrgidx:",configData[1]);
+        FreqOffset = configData[1] + 240000;
+
+        // op mode
+        usblsb = configData[2];
+        document.getElementById('modeBox').value = usblsb;
+
+        usernumber = configData[5];
+        const selectBox = document.getElementById("bandBox");
+        if(usernumber == 1) {
+            selectBox.disabled = false;
+        }
+        else {
+            selectBox.disabled = true;
+        }
+
+        drawTuningLine();
+        draw_connlines();
+
+        makeLabels480(configData);
+        makeLabels48(configData);
+    }
+
+    // Color mapping function with fine-tuned RGB transitions
+    function valueToRGBColor(value, minVal, maxVal) { 
+
+        // If the value is below minVal, return black (or any other color for out-of-range values)
+        if (value < minVal) {
+            return 'rgb(0, 0, 0)';  // Black for values below minVal
+        }
+
+        // Normalize the value between minVal and maxVal to a range of 0 to 1
+        let normalizedValue = (value - minVal) / (maxVal - minVal);
+        normalizedValue = Math.pow(normalizedValue, 1.5);  // Apply non-linear scaling
+
+        let r = 0, g = 0, b = 0;
+        let clamp1 = 0.1, clamp2 = 0.25, clamp3 = 0.5;
+
+        if (normalizedValue < clamp1) {
+            // Lower values: transition from black to dark blue to cyan
+            g = Math.floor((normalizedValue / clamp1) * 255);
+            b = Math.floor((normalizedValue / clamp1) * 255);
+        } else if (normalizedValue < clamp2) {
+            // Mid-low values: transition from cyan to light green
+            g = 255;
+            b = Math.floor(((clamp2 - normalizedValue) / (clamp2 - clamp1)) * 255);
+        } else if (normalizedValue < clamp3) {
+            // Mid-high values: transition from green to red
+            r = Math.floor((normalizedValue - clamp2) / (clamp3 - clamp2) * 255);
+            g = 255;
+        } else {
+            // Higher values: transition from red to yellow
+            r = 255;
+            g = Math.floor(((1 - normalizedValue) / (1 - clamp3)) * 255);
+        }
+
+        return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    // Function to handle mouse press and draw the tuning line
+    function mousePressed(event) {
+        // Get the mouse X and Y positions relative to the canvas
+        let rect = waterfallCanvas.getBoundingClientRect();
+        let mouseX = event.clientX - rect.left;
+        let mouseY = event.clientY - rect.top;
+
+        // Check if the mouse is within the canvas
+        if (mouseX >= 0 && mouseX < waterfallCanvas.width && mouseY >= 0 && mouseY < waterfallCanvas.height) {
+            // Map the mouseX position (0 to width) to the FFT index (0 to 1024)
+            const screenIndex = Math.floor((mouseX / waterfallCanvas.width) * 1024);
+            // Map the screen index to the frequency offset above bigFFTstartQRG
+            freqOffset = Math.floor((screenIndex / 1024) * (bigFFTendQRG - bigFFTstartQRG));
+            freqOffset = clampFrequency(freqOffset);
+
+            // Send the freqOffset via WebSocket
+            sendFreqOffsetToServer(freqOffset);
+        }
+    }
+
+    function mousePressed2(event) {
+        // Get the mouse X and Y positions relative to the canvas
+        let rect = waterfallCanvas2.getBoundingClientRect();
+        let mouseX = event.clientX - rect.left;
+        let mouseY = event.clientY - rect.top;
+        
+        // Check if the mouse is within the canvas
+        if (mouseX >= 0 && mouseX < waterfallCanvas2.width && mouseY >= 0 && mouseY < waterfallCanvas2.height) {
+            // Map the mouseX position (0 to width) to the FFT index (0 to 1024)
+            const screenIndex2 = Math.floor((mouseX / waterfallCanvas2.width) * 1024);
+            // Map the screenIndex2 to a frequency offset (width is 48kHz)
+            const freqOffset2 = Math.floor((screenIndex2 / 1024) * 48000);
+            // 0 is in the middle
+            const freqOffset2Centered = freqOffset2 - 24000;
+            // adjust the freqOffset
+            freqOffset += freqOffset2Centered;
+            freqOffset = clampFrequency(freqOffset);
+
+            // Send the clicked index via WebSocket
+            sendFreqOffsetToServer(freqOffset);
+        }
+    }
+
+    function clampFrequency(value) {
+        return Math.min(Math.max(value, 0), bigFFTendQRG - bigFFTstartQRG);
+    }
+
+    // Function to handle mouse wheel event for tuning adjustments
+    function handleMouseWheel(event) {
+        event.preventDefault();
+
+        // Update tuning index based on wheel delta
+        if (event.shiftKey) {
+            let stepwidth = 1000;
+            if (event.altKey) stepwidth = 12500;
+
+            let increment = event.deltaY > 0 ? -stepwidth : stepwidth;
+            freqOffset = Math.round(freqOffset / stepwidth) * stepwidth;
+            freqOffset += increment;
+            freqOffset = clampFrequency(freqOffset);
+            sendFreqOffsetToServer(freqOffset);
+        }
+        else {
+            let increment = event.deltaY > 0 ? -100 : 100;
+            freqOffset += increment;
+            freqOffset = clampFrequency(freqOffset);
+            sendFreqOffsetToServer(freqOffset);
+        }
+    }
+
+    function handleMouseWheel2(event) {
+        event.preventDefault();
+
+        // Update tuning index based on wheel delta
+        let increment = event.deltaY > 0 ? -10 : 10;
+        freqOffset += increment;
+        freqOffset = clampFrequency(freqOffset);
+        sendFreqOffsetToServer(freqOffset);
+    }
+
+    // Send the FFT index to the server
+    function sendFreqOffsetToServer(FreqOffset) {
+        //console.log("FreqOffset:",FreqOffset);
+        if (socket.readyState === WebSocket.OPEN) {
+            let data = new Float32Array(2);
+            data[0] = 0;  // ID = 0 (indicating a waterfall offset frequency)
+            data[1] = FreqOffset;
+            socket.send(data.buffer);
+        }
+    }
+
+    function sendBandToServer(index) {
+        if (socket.readyState === WebSocket.OPEN) {
+            let data = new Float32Array(2);
+            data[0] = 1;  // ID = 1 (indicating a band selection)
+            data[1] = index;
+            socket.send(data.buffer);
+        }
+    }
+
+    function sendFilterToServer(index) {
+        if (socket.readyState === WebSocket.OPEN) {
+            let data = new Float32Array(2);
+            data[0] = 3;  // ID = 3 (indicating a filter selection)
+            data[1] = index;
+            socket.send(data.buffer);
+        }
+    }
+
+    function sendModeToServer(index) {
+        if (socket.readyState === WebSocket.OPEN) {
+            let data = new Float32Array(2);
+            data[0] = 2;  // ID = 2 (indicating a mode selection)
+            data[1] = index;
+            socket.send(data.buffer);
+        }
+    }
+
+    function sendUserPW() {
+        if (socket.readyState === WebSocket.OPEN) {
+            const username = document.getElementById("username").value;
+            const password = document.getElementById("password").value;
+            const combinedText = username + ":" + password; // Using ":" as a separator for clarity
+
+            // Convert combined text to Float32Array
+            const encoder = new TextEncoder();
+            const bytes = encoder.encode(combinedText);
+            const floatArray = new Float32Array(bytes.length+1);
+
+            floatArray[0] = 4;  // ID for user and PW
+            for (let i = 0; i < bytes.length; i++) {
+                floatArray[i+1] = bytes[i];
+            }
+
+            socket.send(floatArray.buffer);
+        }
+    }
+
+    // function to map the Frequency Offset to a pixewl offset
+    function getPixelIndex(foffset) {
+        const range = bigFFTendQRG - bigFFTstartQRG;
+        return Math.round(foffset / range * 1023);
+    }
+
+
+    // Function to draw the white tuning line on the overlay canvas
+    function drawTuningLine() {
+        let index = getPixelIndex(freqOffset);
+        // Clear the previous overlay (remove previous tuning line)
+        overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+        // Set the transparency and fill color for the overlay canvas
+        overlayCtx.globalAlpha = 0.5; // Set the transparency level (0.0 is fully transparent, 1.0 is fully opaque)
+        overlayCtx.fillStyle = 'white'; // Set the fill color to red
+
+        // Draw a filled rectangle on the overlay canvas
+        let x = (index / 1024) * overlayCanvas.width;
+        let rectWidth = 480000 * 6 / (bigFFTendQRG - bigFFTstartQRG);
+        if(usblsb == 0) rectWidth = - rectWidth;
+        if(usblsb == 2) {
+            x -= rectWidth;
+            rectWidth *= 2;
+        }
+        const rectHeight = overlayCanvas.height;
+        const rectX = x; // X position of the rectangle (adjust as needed)
+
+        overlayCtx.fillRect(rectX, 0, rectWidth, rectHeight);
+
+        // and in the lower waterfall
+        // Clear the previous overlay (remove previous tuning line)
+        overlayCtx2.clearRect(0, 0, overlayCanvas2.width, overlayCanvas2.height);
+
+        // Set the transparency and fill color for the overlay canvas
+        overlayCtx2.globalAlpha = 0.3; // Set the transparency level (0.0 is fully transparent, 1.0 is fully opaque)
+        overlayCtx2.fillStyle = 'white'; // Set the fill color to red
+
+        // Draw a filled rectangle on the overlay canvas
+        let x2 = (512 / 1024) * overlayCanvas2.width;
+        let rectWidth2 = 64;
+        if(usblsb == 0) rectWidth2 = - rectWidth2;
+        if(usblsb == 2) {
+            x2 -= rectWidth2;
+            rectWidth2 *= 2;
+        }
+        const rectHeight2 = overlayCanvas2.height;
+        const rectX2 = x2; // X position of the rectangle (adjust as needed)
+
+        overlayCtx2.fillRect(rectX2, 0, rectWidth2, rectHeight2);
+
+        draw_connlines();
+    }
+
+    function draw_connlines()
+    {
+        let x = getPixelIndex(freqOffset);
+        let x2 = (512 / 1024) * overlayCanvas2.width;
+
+        const upwidth = 480000 * 6 / (bigFFTendQRG - bigFFTstartQRG);
+
+        // and in the lower label CTX the connecting lines
+        let xo1 = x;
+        if(usblsb == 2) xo1 -= upwidth;
+        let xo2 = x+upwidth;
+        if(usblsb == 0) xo2 = x-upwidth;
+
+        let xu1 = x2;
+        if(usblsb == 2) xu1 -= 64;
+        let xu2 = x2+64;
+        if(usblsb == 0) xu2 = x2-64;
+
+        // Set the stroke style for the lines (grey color)
+        labelCtx.strokeStyle = '#404040';
+        labelCtx.lineWidth = 2; // Set line width (optional)
+
+        // Begin drawing the first line
+        labelCtx.beginPath();
+        labelCtx.moveTo(xo1, 0); // Start at (xo1, 0)
+        labelCtx.lineTo(xu1, labelCanvas.height); // End at (xu1, canvasHeight)
+        labelCtx.stroke(); // Draw the line
+
+        // Begin drawing the second line
+        labelCtx.beginPath();
+        labelCtx.moveTo(xo2, 0); // Start at (xo2, 0)
+        labelCtx.lineTo(xu2, labelCanvas.height); // End at (xu2, canvasHeight)
+        labelCtx.stroke(); // Draw the line
+    }
+
+    function updateBand() {
+        const bandBox = document.getElementById("bandBox");
+        const selectedValue = parseFloat(bandBox.value);
+        bandchanged = selectedValue; // draws horizontal line and label into the waterfall
+        
+        sendBandToServer(selectedValue);
+    }
+
+    function updateMode() {
+        const modeBox = document.getElementById("modeBox");
+        const selectedValue = parseFloat(modeBox.value);
+        bandchanged = selectedValue; // draws horizontal line and label into the waterfall
+        
+        sendModeToServer(selectedValue);
+    }
+
+    function updateFilter() {
+        const filterBox = document.getElementById("nffilter");
+        const selectedValue = parseFloat(filterBox.value);
+        
+        sendFilterToServer(selectedValue);
+    }
+    
+    // Attach event listeners
+    waterfallCanvas.addEventListener('mousedown', mousePressed);
+    waterfallCanvas.addEventListener('wheel', handleMouseWheel);  // Mouse wheel event listener
+    waterfallCanvas2.addEventListener('wheel', handleMouseWheel2);  // Mouse wheel event listener
+
+    waterfallCanvas2.addEventListener('mousedown', mousePressed2);
+
+    // =============== AUDIO Playback ===================
+    let audioContext;
+    let scriptNode;
+    let websocket;
+    let defaultlevel;
+
+    function initAudio() {
+        // Create a new AudioContext with the desired sample rate (8000 S/s)
+        audioContext = new (window.AudioContext || window.webkitAudioContext)({
+            sampleRate: 8000
+        });
+
+        // Ensure the AudioContext is running (it may be in 'suspended' state initially)
+        if (audioContext.state === 'suspended') {
+            audioContext.resume().then(() => {
+                console.log('AudioContext resumed');
+            });
+        }
+
+        // Create a GainNode for volume control
+        gainNode = audioContext.createGain();
+        gainNode.gain.value = 0.5;  // Set initial volume to 50%
+
+        // Create ScriptProcessorNode to handle real-time audio
+        const bufferSize = 1024;  // Match the size of your audio packets
+        scriptNode = audioContext.createScriptProcessor(bufferSize, 1, 1);
+/*
+        // Create an oscillator to ensure audio context is processing
+        const oscillator = audioContext.createOscillator();
+        oscillator.frequency.setValueAtTime(440, audioContext.currentTime); // A4 tone
+        oscillator.connect(audioContext.destination);
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.5);  // Play for 0.5 seconds
+*/
+        // Handle audio processing
+        scriptNode.onaudioprocess = (audioProcessingEvent) => {
+            const outputBuffer = audioProcessingEvent.outputBuffer;
+            const outputData = outputBuffer.getChannelData(0);
+
+            if (audioQueue.length > 0) {
+
+                const audioData = audioQueue.shift(); // Take the next chunk from the queue
+                // Fill output buffer with audio data
+                for (let i = 0; i < outputData.length; i++) {
+                    outputData[i] = audioData[i] || 0; // If there's no data, fill with silence
+                }
+            } else {
+                //console.log('Queue is empty, outputting silence');
+                // If queue is empty, output silence
+                for (let i = 0; i < outputData.length; i++) {
+                    outputData[i] = 0;
+                }
+            }
+        };
+
+        // Connect the ScriptProcessorNode to the GainNode, then to the destination
+        scriptNode.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        if(isFinite(defaultlevel)) {
+            gainNode.gain.value = defaultlevel;
+        }
+
+        // Set up the volume control slider
+        const volumeControl = document.getElementById('volumeControl');
+        volumeControl.addEventListener('input', function() {
+            gainNode.gain.value = this.value;  // Update gain (volume) based on slider value
+        });
+    }
+
+    
+    function startAudioStream() {
+        runAudio = 1;
+    }
+
+    function stopAudioStream() {
+        runAudio = 0;
+        if (audioContext) {
+            audioContext.close();
+        }
+    }
+
+    function updateSignalStrength(dBmValue) {
+        const minDbm = -130;
+        const maxDbm = -80;
+        
+        // Convert dBm value to a percentage of the bar height
+        const percentage = ((dBmValue - minDbm) / (maxDbm - minDbm)) * 100;
+        
+        // Update the bar height (instead of width)
+        const barFill = document.getElementById('barFill');
+        barFill.style.height = percentage + '%';
+    }
+
+    function detectMobileDevice() {
+        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+
+        // Check if the user agent is for a mobile device
+        if (/android|iPhone|iPad|iPod|opera mini|IEMobile|WPDesktop/i.test(userAgent)) {
+            // Redirect to the mobile version of the page
+            window.location.href = "fftmobile.html";
+        }
+    }
+
+document.getElementById('audioCheckbox').addEventListener('change', (event) => {
+    if (event.target.checked) {
+        initAudio();
+        startAudioStream();
+    } else {
+        stopAudioStream();
+    }
+});
+
+window.onload = function () {
+    detectMobileDevice();
+};
+ 
+// Run sendUserPW every second
+setInterval(sendUserPW, 1000);
+
+    function saveToLocalStorage() {
+        const username = document.getElementById("username").value;
+        let password = document.getElementById("password").value;
+
+        // use these two line as long as the password is not in use
+        password = username;
+        document.getElementById("password").value = password;
+        
+        // Save values to local storage
+        localStorage.setItem("username", username);
+        localStorage.setItem("password", password);
+    }
+
+    // Add event listeners to call saveToLocalStorage on input
+    document.getElementById("username").addEventListener("input", saveToLocalStorage);
+    document.getElementById("password").addEventListener("input", saveToLocalStorage);
+
+    // Load stored values into the input fields on page load
+    window.addEventListener("load", function() {
+        const savedUsername = localStorage.getItem("username") || "";
+        const savedPassword = localStorage.getItem("password") || "";
+        
+        document.getElementById("username").value = savedUsername;
+        document.getElementById("password").value = savedPassword;
+    });
+
+    function toggleMenu() {
+        const menu = document.getElementById("dropdownMenu");
+        menu.style.display = menu.style.display === "block" ? "none" : "block";
+    }
+
+    window.onclick = function(event) {
+        if (!event.target.closest('.menu-icon') && !event.target.closest('.dropdown-menu')) {
+            document.getElementById("dropdownMenu").style.display = "none";
+        }
+    }
+
+    function confirmSettings() {
+    // Perform any actions you need with the selected settings
+    console.log("Settings confirmed:", {
+        nffilter: document.getElementById("nffilter").value,
+    });
+
+    // Close the dropdown menu
+    document.getElementById("dropdownMenu").style.display = "none";
+}
+
+</script>
+
+</body>
+</html>

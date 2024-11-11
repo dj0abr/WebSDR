@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>kwWebRX</title>
+    <style>
+        /* Style to ensure canvas scales to 100% width of the device */
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            display: flex;
+            flex-direction: column; /* Ensure elements are stacked vertically */
+            justify-content: flex-start; /* Align items at the top */
+            align-items: center;
+            background-color: #f0f0f0;
+        }
+
+        /* The container that wraps both canvases */
+        .canvas-container {
+            position: relative;    /* Create a positioning context for the canvases */
+            width: 100%;           /* Ensure container takes 100% of available width */
+            max-width: 100%;       /* Prevent overflow */
+        }
+
+        #myCanvas {
+            display: block;        /* Ensures there's no extra space around the canvas */
+            width: 100%;           /* Scale canvas to 100% width of the screen */
+            height: auto;          /* Maintain the aspect ratio */
+        }
+
+        #overlayCanvas {
+            position: absolute;    /* Position it on top of #myCanvas */
+            top: 0;
+            left: 0;
+            width: 100%;           /* Match the width of #myCanvas */
+            height: 100%;          /* Ensure the height also matches #myCanvas */
+            pointer-events: none;  /* Ensure the overlay doesn't block interactions with the canvas below */
+        }
+
+        .guicontainer {
+            display: flex;
+            align-items: center; /* Aligns items vertically in the center */
+            gap: 15px; /* Adds space between the elements */
+            font-family: Arial, Helvetica, sans-serif; /* Non-serif fonts */
+            font-weight: bold; /* Bold text */
+            font-size: 22px; /* Optional: set font size */
+        }
+
+        #bandBox, #modeBox {
+            width: 120px; /* Adjust this value to make the combo box larger */
+            padding: 2px; /* Optional: add padding to make it look nicer */
+            font-size: inherit; /* Inherits the font size from .guicontainer */
+            font-family: inherit;
+            font-weight: inherit;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+        /* Input field styling */
+        .login-input {
+            padding: 4px;
+            margin: 4px 0;
+            font-size: 16px; 
+            font-family: inherit;
+            font-weight: inherit;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            outline: none;
+            margin-left: 5px;
+            width: 15%;
+        }
+        .login-input:invalid {
+            background-color: red;
+        }
+    </style>
+</head>
+<body>
+
+<div>
+    <canvas id="myCanvas" tabindex="0"></canvas>
+    <canvas id="overlayCanvas" tabindex="1"></canvas>
+</div>
+<div class="guicontainer">
+    <label class="audiolabel" for="audioCheckbox">Audio</label>
+    <input type="checkbox" id="audioCheckbox">
+
+    <label class="bandlabel" for="bandBox">Band:</label>
+    <select id="bandBox" onchange="updateBand()">
+        <option value="630">630m</option>
+        <option value="160">160m</option>
+        <option value="80">80m</option>
+        <option value="60">60m</option>
+        <option value="40">40m</option>
+        <option value="30">30m</option>
+        <option value="20">20m</option>
+        <option value="17">17m</option>
+        <option value="15">15m</option>
+        <option value="12">12m</option>
+        <option value="11">11m-CB</option>
+        <option value="280">10m 28-28,5 MHz</option>
+        <option value="285">10m 28,5-29 MHz</option>
+        <option value="290">10m 29 MHz</option>
+        <option value="6">6m</option>
+        <option value="4">4m</option>
+        <option value="144">144,0</option>
+        <option value="145">144,5</option>
+        <option value="146">145,0</option>
+        <option value="147">145,5</option>
+        <option value="438">438,8</option>
+        <option value="446">PMR446</option>
+    </select>
+
+    <label class="bandlabel" for="modeBox">Mode:</label>
+    <select id="modeBox" onchange="updateMode()">
+        <option value="1">USB</option>
+        <option value="0">LSB</option>
+        <option value="2">FM</option>
+    </select>
+
+    <input type="text" class="login-input" name="username" style="text-transform: uppercase;" id="username" placeholder="Rufzeichen" required  required minlength="3">
+</div>
+
+<script>
+
+    let fftData = new Float32Array(1024);  // Initialize with dummy values
+    let socket;
+    let reconnectInterval = 2000;  // Reconnect every 2 seconds
+    let firstDraw = true;  // Flag to check if this is the first draw
+    let newDataAvailable = false;
+    let runAudio = 0;
+    let audioQueue = [];
+    let GUIspace = 40;  // free space for GUI elements below the waterfall
+    let bandchanged = -1;
+    let usblsb = 1;
+    let bigFFTstartQRG = 14000000;
+    let bigFFTendQRG = 14350000;
+    let freqOffset = 0;
+
+    const canvas = document.getElementById('myCanvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    const overlayCanvas = document.getElementById('overlayCanvas');
+    const overlayCtx = overlayCanvas.getContext('2d');
+
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight - GUIspace;
+        overlayCanvas.width = canvas.width;
+        overlayCanvas.height = canvas.height;
+        firstDraw = true;
+    }
+
+    function displayFrequency(freq) {
+        const overlayCanvas = document.getElementById("overlayCanvas");
+        const ctx = overlayCanvas.getContext("2d");
+
+        // Set font styles for frequency display
+        ctx.font = "bold 24px Arial";
+        ctx.textAlign = "center";
+
+        // Calculate position and dimensions for the frequency display
+        const x = overlayCanvas.width / 2;
+        const y = overlayCanvas.height - 60; // Positioned close to the bottom
+        const padding = 10; // Padding around the text
+        const textWidth = ctx.measureText(freq).width;
+        const rectWidth = textWidth + padding * 2;
+        const rectHeight = 40; // Fixed height for the rectangle
+        const rectX = x - rectWidth / 2;
+        const rectY = y - rectHeight / 2;
+
+        // Clear only the area where the rectangle and text will be drawn
+        ctx.clearRect(rectX - padding, rectY - padding, rectWidth + padding * 2, rectHeight + padding * 2);
+
+        // Draw semi-transparent rounded rectangle
+        ctx.fillStyle = "rgba(255, 255, 255, 0.7)"; // White background with 50% opacity
+        ctx.beginPath();
+        ctx.moveTo(rectX + 10, rectY); // Top-left corner arc
+        ctx.lineTo(rectX + rectWidth - 10, rectY); // Top-right corner arc start
+        ctx.quadraticCurveTo(rectX + rectWidth, rectY, rectX + rectWidth, rectY + 10);
+        ctx.lineTo(rectX + rectWidth, rectY + rectHeight - 10); // Bottom-right corner arc start
+        ctx.quadraticCurveTo(rectX + rectWidth, rectY + rectHeight, rectX + rectWidth - 10, rectY + rectHeight);
+        ctx.lineTo(rectX + 10, rectY + rectHeight); // Bottom-left corner arc start
+        ctx.quadraticCurveTo(rectX, rectY + rectHeight, rectX, rectY + rectHeight - 10);
+        ctx.lineTo(rectX, rectY + 10); // Return to top-left corner arc start
+        ctx.quadraticCurveTo(rectX, rectY, rectX + 10, rectY);
+        ctx.closePath();
+        ctx.fill();
+
+        // Draw the frequency text on top of the rectangle
+        ctx.fillStyle = "blue"; // Text color
+        ctx.fillText(freq, x, y + 8); // Adjust text vertical alignment if necessary
+    }
+
+
+
+    // Scaling function that maps a value from 0-1024 to the canvas width
+    function scaleX(value) {
+        return (value / 1024) * canvas.width;
+    }
+
+    // Color mapping function with fine-tuned RGB transitions
+    function valueToRGBColor(value, minVal, maxVal) {
+        // If the value is below minVal, return black (or any other color for out-of-range values)
+        if (value < minVal) {
+            return 'rgb(0, 0, 0)';  // Black for values below minVal
+        }
+
+        // Normalize the value between minVal and maxVal to a range of 0 to 1
+        let normalizedValue = (value - minVal) / (maxVal - minVal);
+        normalizedValue = Math.pow(normalizedValue, 1.5);  // Apply non-linear scaling
+
+        let r = 0, g = 0, b = 0;
+        let clamp1 = 0.15, clamp2 = 0.3, clamp3 = 0.5;
+
+        if (normalizedValue < clamp1) {
+            // Lower values: transition from black to dark blue to cyan
+            g = Math.floor((normalizedValue / clamp1) * 255);
+            b = Math.floor((normalizedValue / clamp1) * 255);
+        } else if (normalizedValue < clamp2) {
+            // Mid-low values: transition from cyan to light green
+            g = 255;
+            b = Math.floor(((clamp2 - normalizedValue) / (clamp2 - clamp1)) * 255);
+        } else if (normalizedValue < clamp3) {
+            // Mid-high values: transition from green to red
+            r = Math.floor((normalizedValue - clamp2) / (clamp3 - clamp2) * 255);
+            g = 255;
+        } else {
+            // Higher values: transition from red to yellow
+            r = 255;
+            g = Math.floor(((1 - normalizedValue) / (1 - clamp3)) * 255);
+        }
+
+        return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    // Function to calculate the noise floor based on current FFT data
+    function calculateNoiseFloor(fftData, thresholdRatio = 0.5) {
+        // Sort FFT data to identify low values for noise floor calculation
+        let sortedData = [...fftData].sort((a, b) => a - b);
+        
+        // Pick a threshold ratio to skip the stronger values; for example, 50% means we ignore the top 50%
+        let noiseFloorIndex = Math.floor(sortedData.length * thresholdRatio);
+        
+        // Calculate the average of values below the threshold to represent the noise floor
+        let noiseFloor = sortedData.slice(0, noiseFloorIndex).reduce((acc, val) => acc + val, 0) / noiseFloorIndex;
+        
+        return noiseFloor;
+    }
+
+    function draw() {
+        // On the first draw, clear the canvas and start drawing immediately
+        if (firstDraw) {
+            // Clear the entire canvas
+            ctx.clearRect(0, 0, scaleX(1024), canvas.height);
+            firstDraw = false;  // Disable the flag after the first draw
+        } else {
+            // Shift the canvas image down by one line
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            ctx.putImageData(imageData, 0, 1);  // Shift it down by 1 pixel vertically
+        }
+
+        // Find the minimum value in the current FFT data
+        let currentMinValue = calculateNoiseFloor(fftData);
+
+        // Draw the new line at the top
+        for (let x = 0; x < fftData.length; x++) {
+            const dBmValue = fftData[x];  // Get the dBm value
+            const color = valueToRGBColor(dBmValue, currentMinValue, -80);  // Convert value to color
+
+            // Set the color for the pixel
+            ctx.fillStyle = color;
+
+            // Draw a single pixel at (x, 0)
+            ctx.fillRect(scaleX(x), 0, scaleX(1), 1);
+        }
+    }
+
+    // function to map the Frequency Offset to a pixel offset
+    function getPixelIndex(foffset) {
+        const range = bigFFTendQRG - bigFFTstartQRG;
+        return Math.round(foffset / range * 1023);
+    }
+
+    // Function to draw the white tuning line on the overlay canvas
+    function drawTuningLine() {
+        let index = getPixelIndex(freqOffset);
+        // Clear the previous overlay (remove previous tuning line)
+        overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+        // Set the transparency and fill color for the overlay canvas
+        overlayCtx.globalAlpha = 0.5; // Set the transparency level (0.0 is fully transparent, 1.0 is fully opaque)
+        overlayCtx.fillStyle = 'red'; // Set the fill color to red
+
+        // Draw a filled rectangle on the overlay canvas
+        let x = (index / 1024) * overlayCanvas.width;
+        let rectWidth = 480000 * 6 / (bigFFTendQRG - bigFFTstartQRG);
+        if(usblsb == 0) rectWidth = - rectWidth;
+        if(usblsb == 2) {
+            x -= rectWidth;
+            rectWidth *= 2;
+        }
+        const rectHeight = overlayCanvas.height - GUIspace;
+        const rectX = x; // X position of the rectangle (adjust as needed)
+
+        overlayCtx.fillRect(rectX, 0, rectWidth, rectHeight);
+
+        overlayCtx.globalAlpha = 1.0;
+    }
+
+
+    function animate(currentTime) {
+        requestAnimationFrame(animate);
+
+        if (newDataAvailable) {
+            draw();
+            newDataAvailable = false;
+        }
+    }
+
+    function printQRG(configData) {
+        let tunedfrequency = configData[0];
+        const shiftfrequency = configData[1];
+
+        tunedfrequency += shiftfrequency;
+
+        const tunedfrequencyMHz = (tunedfrequency / 1e6).toFixed(6);
+
+        // Split the frequency into integer and decimal parts
+        const [integerPart, decimalPart] = tunedfrequencyMHz.split('.');
+
+        // Combine the formatted integer part and decimal part
+        const formattedFrequency = integerPart + ',' + decimalPart.slice(0,3) + "." + decimalPart.slice(3,6);
+
+        // Write the formatted result into the div with id "freq"
+        //document.getElementById("freq").innerText = formattedFrequency + " MHz";
+        displayFrequency(formattedFrequency + " MHz");
+    }
+
+    function getHamRadioBand(frequency) {
+        if (frequency >= 400000 && frequency <= 900000) return 630;
+        if (frequency >= 1800000 && frequency <= 3000000) return 160;
+        if (frequency >= 3500000 && frequency <= 4000000) return 80;
+        if (frequency >= 4500000 && frequency <= 6000000) return 60;
+        if (frequency >= 7000000 && frequency <= 7300000) return 40;
+        if (frequency >= 10000000 && frequency <= 11000000) return 30;
+        if (frequency >= 14000000 && frequency <= 14350000) return 20;
+        if (frequency >= 18000000 && frequency <= 19000000) return 17;
+        if (frequency >= 21000000 && frequency <= 21450000) return 15;
+        if (frequency >= 24000000 && frequency <= 25500000) return 12;
+        if (frequency >= 26000000 && frequency <= 27900000) return 11;
+        if (frequency >= 28000000 && frequency <= 28499000) return 280
+        if (frequency >= 28500000 && frequency <= 29000000) return 285;
+        if (frequency >= 29100000 && frequency <= 29700000) return 290;
+        if (frequency >= 50000000 && frequency <= 54000000) return 6;
+        if (frequency >= 70000000 && frequency <= 72000000) return 4;
+        if (frequency >= 144000000 && frequency <= 144500000) return 144;
+        if (frequency >= 144500000 && frequency <= 145000000) return 145;
+        if (frequency >= 145000000 && frequency <= 145500000) return 146;
+        if (frequency >= 145500000 && frequency <= 146000000) return 147;
+        if (frequency >= 438800000 && frequency <= 439300000) return 438;
+        if (frequency >= 430000000 && frequency <= 440000000) return 70;
+        if (frequency >= 441000000 && frequency <= 460000000) return 446;
+
+        return null;
+    }
+
+    function handle_config(configData) {
+        // big waterfall start QRG
+        bigFFTstartQRG = configData[3];
+
+        // big waterfall end QRG
+        bigFFTendQRG = configData[4];
+
+        // tuned BAND
+        let fidx = getHamRadioBand(configData[0]);
+        document.getElementById('bandBox').value = fidx;
+
+        // shift to the band start qrg
+        // configData[1]: -240000 ... +240000
+        // FreqOffset: offset in Hz from band start
+        //console.log("qrgidx:",configData[1]);
+        FreqOffset = configData[1] + 240000;
+
+        // op mode
+        usblsb = configData[2];
+        document.getElementById('modeBox').value = usblsb;
+
+        drawTuningLine();
+        printQRG(configData);
+    }
+
+    let authentication = true;
+
+    // Function to handle new FFT data received over WebSocket
+    function updateFFT(data) {
+        if (data.byteLength === 4100 || data.byteLength === 1028) {
+            let dataView = new DataView(event.data); // Create a DataView from the ArrayBuffer
+            let idvalue = dataView.getFloat32(0, true);
+
+            if(idvalue < 0.5 && idvalue > -0.5) {
+                // 480kHz waterfall on top
+                fftData = new Float32Array(data, 4, 1024); // Store the remaining 1024 values
+                newDataAvailable = true;
+                //draw();
+            }
+
+            if(idvalue < 2.5 && idvalue > 1.5) {
+                // configuration data
+                authentication = true;
+                configData = new Float32Array(data, 4, 1024); // Store the remaining 1024 values
+                handle_config(configData);
+            }
+
+            if(idvalue < 3.5 && idvalue > 2.5) {
+                // Audio Samples
+                authentication = true;
+                audioData = new Float32Array(data, 4, 1024); // Store the remaining 1024 values
+                if(runAudio == 1) {
+                    audioQueue.push(audioData);
+                }
+            }
+
+            if(idvalue < 5.5 && idvalue > 4.5) {
+                //console.log("authentication failed");
+                authentication = false;
+            }
+        } else {
+            console.error("Data length is not 4100", data.byteLength);
+        }
+    }
+
+    function setupWebSocket() {
+        // Aktuelle Domain ohne Subdomain extrahieren
+        const fullHostname = window.location.hostname;
+        
+        // Extrahiert die Hauptdomain
+        const domainParts = fullHostname.split('.');
+        const mainDomain = domainParts.slice(-2).join('.');  // Die letzten zwei Teile, z.B. "dj0abr.de"
+
+        // WebSocket-URL basierend auf der Hauptdomain erstellen
+        const socketUrl = `wss://ws.${mainDomain}`;
+
+        socket = new WebSocket(socketUrl);
+
+        socket.binaryType = 'arraybuffer';  // Expect binary data
+
+        socket.onopen = () => {
+            console.log('WebSocket connected!');
+        };
+
+        socket.onmessage = (event) => {
+            updateFFT(event.data);  // When data is received, update and redraw
+        };
+
+        socket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+
+        socket.onclose = () => {
+            console.log('WebSocket disconnected. Attempting to reconnect...');
+            retryConnection();
+        };
+    }
+
+    function retryConnection() {
+        setTimeout(() => {
+            console.log(`Reconnecting... `);
+            setupWebSocket();  // Re-attempt connection
+        }, reconnectInterval);
+    }
+
+    function sendBandToServer(index) {
+        localStorage.setItem("bandBox",bandBox.value);
+        if (socket.readyState === WebSocket.OPEN) {
+            let data = new Float32Array(2);
+            data[0] = 1;  // ID = 1 (indicating a band selection)
+            data[1] = index;
+            socket.send(data.buffer);
+            //console.log("Sent index:", index);
+        }
+    }
+
+    function sendModeToServer(index) {
+        if (socket.readyState === WebSocket.OPEN) {
+            let data = new Float32Array(2);
+            data[0] = 2;  // ID = 2 (indicating a mode selection)
+            data[1] = index;
+            socket.send(data.buffer);
+        }
+    }
+
+    // Send the FFT index to the server
+    function sendFreqOffsetToServer(FreqOffset) {
+        //console.log("FreqOffset:",FreqOffset);
+        if (socket.readyState === WebSocket.OPEN) {
+            let data = new Float32Array(2);
+            data[0] = 0;  // ID = 0 (indicating a waterfall offset frequency)
+            data[1] = FreqOffset;
+            socket.send(data.buffer);
+        }
+    }
+
+    function updateBand() {
+        const bandBox = document.getElementById("bandBox");
+        bandBox.blur();
+        const selectedValue = parseFloat(bandBox.value);
+        // Use the float variable (for example, log it or use it in further logic)
+        bandchanged = selectedValue;
+        
+        sendBandToServer(selectedValue);
+    }
+
+    function updateMode() {
+        const modeBox = document.getElementById("modeBox");
+        modeBox.blur();
+        const selectedValue = parseFloat(modeBox.value);
+        // Use the float variable (for example, log it or use it in further logic)
+        bandchanged = selectedValue;
+        
+        sendModeToServer(selectedValue);
+    }
+
+    function sendUserPW() {
+        if (socket.readyState === WebSocket.OPEN) {
+            const username = document.getElementById("username").value;
+            let password = username;//document.getElementById("password").value;
+            const combinedText = username + ":" + password; // Using ":" as a separator for clarity
+
+            // Convert combined text to Float32Array
+            const encoder = new TextEncoder();
+            const bytes = encoder.encode(combinedText);
+            const floatArray = new Float32Array(bytes.length+1);
+
+            floatArray[0] = 4;  // ID for user and PW
+            for (let i = 0; i < bytes.length; i++) {
+                floatArray[i+1] = bytes[i];
+            }
+
+            socket.send(floatArray.buffer);
+        }
+    }
+
+    // =============== AUDIO Playback ===================
+    let audioContext;
+    let scriptNode;
+    let websocket;
+    let defaultlevel;
+
+    function initAudio() {
+        // Create a new AudioContext with the desired sample rate (8000 S/s)
+        audioContext = new (window.AudioContext || window.webkitAudioContext)({
+            sampleRate: 8000
+        });
+
+        // Ensure the AudioContext is running (it may be in 'suspended' state initially)
+        if (audioContext.state === 'suspended') {
+            audioContext.resume().then(() => {
+                console.log('AudioContext resumed');
+            });
+        }
+
+        // Create a GainNode for volume control
+        gainNode = audioContext.createGain();
+        gainNode.gain.value = 0.5;  // Set initial volume to 50%
+
+        // Create ScriptProcessorNode to handle real-time audio
+        const bufferSize = 1024;  // Match the size of your audio packets
+        scriptNode = audioContext.createScriptProcessor(bufferSize, 1, 1);
+
+        // Handle audio processing
+        scriptNode.onaudioprocess = (audioProcessingEvent) => {
+            const outputBuffer = audioProcessingEvent.outputBuffer;
+            const outputData = outputBuffer.getChannelData(0);
+
+            if (audioQueue.length > 0) {
+                const audioData = audioQueue.shift(); // Take the next chunk from the queue
+
+                // Fill output buffer with audio data
+                for (let i = 0; i < outputData.length; i++) {
+                    outputData[i] = audioData[i] || 0; // If there's no data, fill with silence
+                }
+            } else {
+                //console.log('Queue is empty, outputting silence');
+                // If queue is empty, output silence
+                for (let i = 0; i < outputData.length; i++) {
+                    outputData[i] = 0;
+                }
+            }
+        };
+
+        // Connect the ScriptProcessorNode to the GainNode, then to the destination
+        scriptNode.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        if(isFinite(defaultlevel)) {
+            gainNode.gain.value = defaultlevel;
+        }
+    }
+
+    
+    function startAudioStream() {
+        runAudio = 1;
+    }
+
+    function stopAudioStream() {
+        runAudio = 0;
+        if (audioContext) {
+            audioContext.close();
+        }
+    }
+
+    let dragging = 0;
+
+    // Function to handle mouse press and draw the tuning line
+    function mousePressedend(event) {
+        if(dragging >= 10) {
+            dragging = 0;
+            return;
+        }
+
+        const touch = event.changedTouches[0];
+        let mouseX = touch.clientX;
+        let mouseY = touch.clientY;
+
+        // Check if the mouse is within the canvas
+        if (mouseX >= 0 && mouseX < canvas.width && mouseY >= 0 && mouseY < canvas.height) {
+            // Map the mouseX position (0 to width) to the FFT index (0 to 1024)
+            const screenIndex = Math.floor((mouseX / myCanvas.width) * 1024);
+            // Map the screen index to the frequency offset above bigFFTstartQRG
+            freqOffset = Math.floor((screenIndex / 1024) * (bigFFTendQRG - bigFFTstartQRG));
+            freqOffset = clampFrequency(freqOffset);
+
+            // Send the clicked index via WebSocket
+            sendFreqOffsetToServer(freqOffset);
+
+            drawTuningLine();
+        }
+    }
+
+    let lastTouchX = 0;
+
+    canvas.addEventListener('touchmove', function(event) {
+        event.preventDefault();
+        const touch = event.touches[0];
+        const deltaX = touch.clientX - lastTouchX; // Change in X (horizontal movement)
+
+        // Update tuning index based on wheel delta
+        let increment = deltaX > 0 ? 25 : -25;
+        freqOffset += increment;
+        freqOffset = clampFrequency(freqOffset);
+
+        lastTouchX = touch.clientX;
+
+        // Send the updated index via WebSocket
+        sendFreqOffsetToServer(freqOffset);
+
+        // Redraw the tuning line
+        drawTuningLine();
+
+        dragging++;
+    });
+
+    function clampFrequency(value) {
+        return Math.min(Math.max(value, 0), bigFFTendQRG - bigFFTstartQRG);
+    }
+
+    function mousePressedstart(event) {
+        event.preventDefault();
+        const touch = event.touches[0];
+        lastTouchX = touch.clientX;
+    }
+
+    // Function to handle mouse wheel event for tuning adjustments
+    function handleMouseWheel(event) {
+
+        // Update tuning index based on wheel delta
+        let increment = event.deltaY > 0 ? -100 : 100;
+        freqOffset += increment;
+        freqOffset = clampFrequency(freqOffset);
+
+        // Send the updated index via WebSocket
+        sendFreqOffsetToServer(freqOffset);
+
+        // Redraw the tuning line
+        drawTuningLine();
+    }
+
+    // tuning by cursor keys
+    function handleKeyPress(event)
+    {
+        if (event.key === 'ArrowLeft') {
+            let increment = -0.05;
+            if (event.shiftKey) increment = -50;
+            freqOffset += increment;
+            freqOffset = clampFrequency(freqOffset);
+        }
+
+        if (event.key === 'ArrowRight') {
+            let increment = 0.05;
+            if (event.shiftKey) increment = 50;
+            freqOffset += increment;
+            freqOffset = clampFrequency(freqOffset);
+        }
+
+        sendFreqOffsetToServer(freqOffset);
+        drawTuningLine();
+    }
+
+    // Call setupWebSocket initially to establish the connection
+    setupWebSocket();
+
+    // Initial resize and setup
+    resizeCanvas();
+
+    // Reapply resizing when the window is resized
+    window.addEventListener('resize', resizeCanvas);
+
+    // handle audio on/off clicks
+    document.getElementById('audioCheckbox').addEventListener('change', (event) => {
+        if (event.target.checked) {
+            initAudio();
+            startAudioStream();
+        } else {
+            stopAudioStream();
+        }
+    });
+
+    function detectMobileDevice() {
+        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+
+        // Check if the user agent is for a mobile device
+        if (/android|iPhone|iPad|iPod|opera mini|IEMobile|WPDesktop/i.test(userAgent)) {
+            // Redirect to the mobile version of the page
+        }
+        else {
+            window.location.href = "index.html";
+        }
+    }
+
+    //canvas.addEventListener('mousedown', mousePressed);
+    canvas.addEventListener('touchend', mousePressedend);
+    canvas.addEventListener('touchstart', mousePressedstart);
+    canvas.addEventListener('wheel', handleMouseWheel);
+    window.addEventListener('keydown', handleKeyPress);
+
+    canvas.addEventListener('click', () => {
+        const username = document.getElementById("username").value;
+        username.blur();
+    });
+
+    function detectMobileDevice() {
+        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+
+        // Check if the user agent is for a mobile device
+        if (/android|iPhone|iPad|iPod|opera mini|IEMobile|WPDesktop/i.test(userAgent)) {
+        }
+        else {
+            window.location.href = "index.html";
+        }
+    }
+
+    // Start the animation loop
+    requestAnimationFrame(animate);
+
+    // Run sendUserPW every second
+    setInterval(sendUserPW, 1000);
+
+    function saveToLocalStorage() {
+        const username = document.getElementById("username").value;
+        let password = username;//document.getElementById("password").value;
+
+        // use these two line as long as the password is not in use
+        //password = username;
+        //document.getElementById("password").value = password;
+        
+        // Save values to local storage
+        localStorage.setItem("username", username);
+        //localStorage.setItem("password", password);
+    }
+
+    // Add event listeners to call saveToLocalStorage on input
+    document.getElementById("username").addEventListener("input", saveToLocalStorage);
+    //document.getElementById("password").addEventListener("input", saveToLocalStorage);
+
+    // Load stored values into the input fields on page load
+    window.addEventListener("load", function() {
+        const savedUsername = localStorage.getItem("username") || "";
+        //const savedPassword = localStorage.getItem("password") || "";
+        
+        document.getElementById("username").value = savedUsername;
+        //document.getElementById("password").value = savedPassword;
+    });
+
+    window.onload = function () {
+        detectMobileDevice();
+    };
+</script>
+
+</body>
+</html>
