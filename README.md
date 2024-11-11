@@ -2,7 +2,7 @@
 
 This project provides a web-based Software-Defined Radio (SDR) interface for the SDRplay RSP1A and RSP1B, accessible from both desktop and mobile devices. It operates on Linux systems for both x86 and ARM architectures, making it suitable for PCs and SBCs (Single Board Computers) like the Raspberry Pi, Odroid, and others.
 
-**Try it out:** A live demo of this WebSDR is running at the relay station **DB0SL**, and you can access it [here](http://sdr.db0sl.de).
+**Try it out:** A live demo of this WebSDR is running at the relay station **DB0SL**, and you can access it [here](http://www.db0sl.de) _(opens in a new tab)_.
 
 ## Key Features
 
