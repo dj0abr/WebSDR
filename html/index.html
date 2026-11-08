@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Web SDR RX</title>
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
     <style>
         .titlecontainer {
             display: flex;
@@ -58,10 +64,58 @@
         }
 
         .infocontainer {
+            display: grid;
+            grid-template-columns: 360px minmax(0, 1fr);
+            align-items: start;
+            padding: 20px 0;
+            gap: 24px;
+            width: 1024px;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+
+        .receiver-info { padding-left: 20px; }
+
+        .ft8-panel {
+            min-width: 0;
+            border: 1px solid #c8cdd2;
+            border-radius: 6px;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        .ft8-heading {
             display: flex;
-            padding: 20px;
-            gap: 20px;
-            max-width: 1024px;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 12px;
+            background: #f2f4f6;
+            border-bottom: 1px solid #c8cdd2;
+        }
+        .ft8-heading h2 { margin: 0; font-size: 16px; }
+        #ft8Status { margin-left: 10px; font-size: 12px; color: #44515b; }
+        #ft8Count { font-size: 11px; color: #626d75; white-space: nowrap; }
+        .ft8-scroll { height: 250px; overflow: auto; background: white; }
+        #ft8Table { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.15; }
+        #ft8Table th {
+            position: sticky;
+            top: 0;
+            background: white;
+            color: #444;
+            font-size: 11px;
+            font-family: Arial, sans-serif;
+            z-index: 1;
+        }
+        #ft8Table th, #ft8Table td { padding: 1px 6px; text-align: right; }
+        #ft8Table th:last-child, #ft8Table td:last-child { text-align: left; }
+        #ft8Table td { font-family: Consolas, monospace; white-space: nowrap; }
+        #ft8Table td:last-child { white-space: normal; overflow-wrap: anywhere; }
+        #ft8Table .ft8-country { text-align: left; font-family: Arial, sans-serif; white-space: normal; overflow-wrap: anywhere; max-width: 120px; }
+        #ft8Table tr.ft8-slot-even { background: #f1f6fa; }
+        #ft8Empty { padding: 18px 12px; font-size: 12px; color: #626d75; }
+        @media (max-width: 800px) {
+            .infocontainer { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+            .ft8-heading { flex-wrap: wrap; }
         }
 
         .help {
@@ -70,11 +124,7 @@
             max-width: 400px; /* Sets a width limit for the help section */
         }
 
-        .infocontent {
-            flex-grow: 1; /* Makes this div take up remaining space */
-            padding-top: 20px;
-            font-size: 18px;
-        }
+        .infocontent { padding-top: 4px; font-size: 15px; }
 
         /* General canvas styles */
         .canvas-container {
@@ -321,6 +371,55 @@
             background-color: #45a049; /* Darken on hover */
         }
 
+        th[data-col] {
+            cursor: pointer;
+        }
+        th[data-col]:hover {
+            background: #f0f0f0;
+        }
+        #adsbTable th[data-col] {
+            cursor: pointer;
+            position: relative;
+            user-select: none;
+            padding-right: 18px; /* Platz für Pfeil */
+        }
+
+        #adsbTable th[data-col]::after {
+            content: "";
+            position: absolute;
+            right: 6px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 10px;
+            color: #666;
+        }
+
+        /* aufsteigend */
+        #adsbTable th.sort-asc::after {
+            content: "▲";
+            font-size: 14px;
+            color: #d00000;       /* kräftiges Rot */
+            font-weight: bold;
+        }
+
+        /* absteigend */
+        #adsbTable th.sort-desc::after {
+            content: "▼";
+            font-size: 14px;
+            color: #d00000;
+            font-weight: bold;
+        }
+        #adsbTable th.sort-asc,
+        #adsbTable th.sort-desc {
+            background: #fff4f4;
+        }
+
+        .nr-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+            font: 14px Arial, sans-serif; padding: 8px 0; }
+        .nr-controls label { white-space: nowrap; }
+        .nr-controls input[type="range"] { width: 120px; margin: 0; }
+        .nr-controls output { min-width: 34px; }
+        #nrStatus { font-size: 12px; color: #44515b; }
 </style>
 </head>
 <body>
@@ -330,7 +429,7 @@
     <div class="titlecontainer">
         <div class="title">DB0SL Web SDR Receiver</div>
         <div class="title1">SDRplay RSP1A, by DJ0ABR</div>
-        <input type="text" class="login-input" name="username" style="text-transform: uppercase;" id="username" placeholder="Rufzeichen" required minlength="3">
+        <input type="text" class="login-input" name="username" style="text-transform: uppercase;" id="username" placeholder="Rufzeichen" required minlength="3" maxlength="32" title="3–32 Zeichen: Buchstaben, Ziffern und /">
         <input type="password" class="login-input" name="password" id="password" placeholder="Passwort" required style="visibility: hidden;">    
     </div>
     <div class="gui-elements">
@@ -344,7 +443,7 @@
         <input type="checkbox" id="audioCheckbox">
 
         <label class="bandlabel" for="bandBox">Band:</label>
-        <select id="bandBox" onchange="updateBand()">
+        <select id="bandBox" disabled onchange="updateBand()">
             <option value="630">630m</option>
             <option value="160">160m</option>
             <option value="80">80m</option>
@@ -365,8 +464,10 @@
             <option value="145">144,5</option>
             <option value="146">145,0</option>
             <option value="147">145,5</option>
+            <option value="70">431,5</option>
             <option value="438">438,8</option>
             <option value="446">PMR446</option>
+            <option value="1090">ADS-B</option>
         </select>
 
         <label class="bandlabel" for="modeBox">Mode:</label>
@@ -406,6 +507,15 @@
     </div>
 </div>
 
+<div class="nr-controls" role="group" aria-label="Rauschunterdrückung">
+    <label title="Rauschunterdrückung für USB/LSB-Sprechfunk; bei FM pausiert">
+        <input type="checkbox" id="nrEnabled" disabled> NR</label>
+    <label for="nrStrength">Stärke:</label>
+    <input type="range" id="nrStrength" min="1" max="100" step="1" value="60" disabled>
+    <output id="nrStrengthValue" for="nrStrength">60 %</output>
+    <span id="nrStatus" role="status" aria-live="polite">Nicht verbunden</span>
+</div>
+
 <div class="gui-space">
     <canvas id="label480Canvas" width="1024" height="50"></canvas>
 </div>
@@ -417,18 +527,18 @@
 </div>
 
 <!-- Space for labels -->
-<div class="gui-space1">
+<div class="gui-space1" id="lowerWaterfallLabels">
     <canvas id="xlabelCanvas" width="1024" height="60"></canvas>
 </div>
 
 <!-- Second set of canvas elements -->
-<div class="canvas-container waterfall2">
+<div class="canvas-container waterfall2" id="lowerWaterfall">
     <canvas id="waterfallCanvas2" width="1024" height="200"></canvas>
     <canvas id="overlayCanvas2" width="1024" height="200"></canvas>
 </div>
 
 <div class="infocontainer">
-    <div>
+    <div class="receiver-info">
         <p class="help" style="color: red; font-weight: bold;">Bandumschaltung nur möglich bei EINEM eingeloggten Benutzer!</p>
         <strong>Tuning im oberen Wasserfall:</strong><br>
         Mausklick ... grobe Frequenzwahl<br>
@@ -440,13 +550,76 @@
         <strong>Tuning im unteren Wasserfall:</strong><br>
         Mausklick ... USB link und LSB rechts vom Signal klicken<br>
         10 Hz ... Mausrad
+        <div class="infocontent">
+            <p id="infocontent"></p>
+        </div>
     </div>
 
-    <div class="infocontent">
-        <p id="infocontent"></p>
-    </div>
+    <section class="ft8-panel" aria-labelledby="ft8Title">
+        <div class="ft8-heading">
+            <div><h2 id="ft8Title" style="display:inline;">FT8</h2><span id="ft8Status">Verbinde …</span></div>
+            <span id="ft8Count">0 Meldungen</span>
+        </div>
+        <div class="ft8-scroll" id="ft8Scroll" tabindex="0" aria-label="FT8-Meldungen">
+            <table id="ft8Table">
+                <thead><tr><th scope="col">UTC</th><th scope="col">MHz</th><th scope="col">dB</th><th scope="col">DT</th><th scope="col" class="ft8-country" title="Land der sendenden Station">Land</th><th scope="col">Nachricht</th></tr></thead>
+                <tbody id="ft8Rows"></tbody>
+            </table>
+            <div id="ft8Empty">Warte auf einen vollständigen FT8-Slot …</div>
+        </div>
+    </section>
 </div>
 
+<div id="adsbContainer" style="display:none; max-width:1024px; padding:20px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+  <div style="font-family:Arial,sans-serif; font-weight:bold; font-size:18px;">
+    ADS-B Flugzeuge
+  </div>
+
+  <div style="display:flex; align-items:center; gap:12px; font-family:Arial,sans-serif; font-size:12px; color:#666;">
+    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;">
+      <input type="checkbox" id="metricCheckbox">
+      metrisch (m / km/h)
+    </label>
+    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;">
+        <input type="checkbox" id="mapCheckbox">
+        Map
+    </label>
+    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;">
+        <input type="checkbox" id="autozoomCheckbox">
+        Autozoom
+    </label>
+    <span>(Live)</span>
+  </div>
+</div>
+
+
+  <div style="overflow:auto; margin-top:10px;">
+    <table id="adsbTable" style="width:100%; border-collapse:collapse; font-family:Arial,sans-serif; font-size:13px;">
+      <thead>
+        <tr>
+            <th data-col="hex">ICAO</th>
+            <th data-col="flight">Flight</th>
+            <th data-col="alt" id="adsbAltHeader" style="text-align:right;">Alt (ft)</th>
+            <th data-col="gs"  id="adsbGsHeader"  style="text-align:right;">GS (kt)</th>
+            <th data-col="track" style="text-align:right;">Track (°)</th>
+            <th data-col="lat" style="text-align:right;">Lat</th>
+            <th data-col="lon" style="text-align:right;">Lon</th>
+            <th data-col="dist" id="adsbDistHeader" style="text-align:right;">Dist (km)</th>
+            <th data-col="rssi" style="text-align:right;">RSSI (dB)</th>
+            <th data-col="seen" style="text-align:right;">Seen (s)</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div id="adsbMap" style="display:none; margin-top:10px; width:100%; height:700px; border:1px solid #ccc; border-radius:8px;"></div>
+</div>
+
+
+<script src="ft8-country-data.js"></script>
+<script src="ft8-countries.js"></script>
+<script src="noise-reduction.js"></script>
 <script>
     let fftData = new Float32Array(1024);  // Initialize with dummy values
     let ssbData = new Float32Array(1024);  // Initialize with dummy values
@@ -454,6 +627,7 @@
     let minValue = -130;  // Default minimum value for normalization
     let maxValue = -85;   // The brightest color will be clamped to -85 dBm
     let socket;
+    let reconnectTimer = null;
     let reconnectInterval = 2000;  // Reconnect every 2 seconds
     let usblsb = 1;
     let runAudio = 0;
@@ -463,6 +637,15 @@
     let bigFFTendQRG = 14350000;
     let freqOffset = 0;
     let usernumber = 0;
+    let adsbSortCol = null;   // z.B. "alt", "gs", "dist", ...
+    let adsbSortDir = 1;      // 1 = aufsteigend, -1 = absteigend
+    let upperWfHeightCurrent = 300;  // Startwert wie im HTML
+    const adsbTrails = new Map();   // hex -> { line: L.Polyline, points: [[lat,lon],...], lastAddUnix }
+    const TRAIL_MAX_POINTS = 80;    // Länge der Spur (Punkte)
+    const TRAIL_MIN_DIST_M = 150;   // nur neue Punkte, wenn mind. so weit weg
+    const TRAIL_MAX_AGE_S = 120;    // Trails löschen, wenn Flieger so lange nicht mehr gesehen
+    const WF_HEIGHT_NORMAL = 300;
+    const WF_HEIGHT_ADSB   = 150;
 
     // Get canvas contexts
     const label480Canvas = document.getElementById('label480Canvas');
@@ -491,48 +674,256 @@
     waterfallCtx2.fillRect(0, 0, waterfallCanvas2.width, waterfallCanvas2.height);
     drawTuningLine();
 
-    function setupWebSocket() {
-        // Aktuelle Domain ohne Subdomain extrahieren
+    function ftToM(ft) { return ft * 0.3048; }
+    function ktToKmh(kt) { return kt * 1.852; }
+    function isMetric() {
+        const cb = document.getElementById("metricCheckbox");
+        return cb && cb.checked;
+    }
+    function updateAdsbHeaders() {
+        const altH = document.getElementById("adsbAltHeader");
+        const gsH  = document.getElementById("adsbGsHeader");
+        const distH = document.getElementById("adsbDistHeader");
+        if (distH) distH.innerText = isMetric() ? "Dist (km)" : "Dist (NM)";
+
+        if (!altH || !gsH) return;
+
+        if (isMetric()) {
+            altH.innerText = "Alt (m)";
+            gsH.innerText  = "GS (km/h)";
+        } else {
+            altH.innerText = "Alt (ft)";
+            gsH.innerText  = "GS (kt)";
+        }
+    }
+
+    function updateUpperWaterfallHeight() {
+        const targetH = isAdsbSelected() ? WF_HEIGHT_ADSB : WF_HEIGHT_NORMAL;
+
+        // WICHTIG: nur wenn sich wirklich was ändert
+        if (upperWfHeightCurrent === targetH) return;
+        upperWfHeightCurrent = targetH;
+
+        // Canvas-Größen setzen (Achtung: löscht den Inhalt -> deshalb nur beim Wechsel!)
+        waterfallCanvas.height = targetH;
+        overlayCanvas.height   = targetH;
+
+        // Container-Höhe setzen
+        const container = waterfallCanvas.closest(".canvas-container");
+        if (container) container.style.height = targetH + "px";
+
+        // Neu initialisieren
+        waterfallCtx.fillStyle = "lightgrey";
+        waterfallCtx.fillRect(0, 0, waterfallCanvas.width, targetH);
+
+        overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+        drawTuningLine();
+    }
+
+
+    function colorFromIcao(hex) {
+        // hex ist z.B. "3C4B26" -> wird #3C4B26
+        hex = String(hex || "").replace(/[^0-9A-Fa-f]/g, "").toUpperCase();
+        if (hex.length < 6) hex = (hex + "000000").slice(0, 6);
+        if (hex.length > 6) hex = hex.slice(0, 6);
+
+        // etwas "aufhellen", damit es auf OSM besser sichtbar ist
+        const r = parseInt(hex.slice(0, 2), 16);
+        const g = parseInt(hex.slice(2, 4), 16);
+        const b = parseInt(hex.slice(4, 6), 16);
+
+        const mix = 0.35; // 0..1, je höher desto heller
+        const rr = Math.round(r + (255 - r) * mix);
+        const gg = Math.round(g + (255 - g) * mix);
+        const bb = Math.round(b + (255 - b) * mix);
+
+        return `rgb(${rr},${gg},${bb})`;
+    }
+
+    function distanceMeters(lat1, lon1, lat2, lon2) {
+        return distanceKm(lat1, lon1, lat2, lon2) * 1000;
+    }
+
+
+    // FT8 uses independent, newline-terminated records in type-7 binary frames.
+    // Keep a bounded local view; new connections receive future decodes only.
+    const FT8_MAX_ROWS = 500;
+    let ft8DialHz = null;
+
+    function setFT8Status(dialHz) {
+        ft8DialHz = dialHz;
+        document.getElementById("ft8Status").textContent = dialHz ?
+            `${(dialHz / 1e6).toFixed(6)} MHz · USB` : "In diesem Bandsegment kein FT8";
+        document.getElementById("ft8Empty").textContent = dialHz ?
+            "Warte auf einen vollständigen FT8-Slot …" : "Hier ist keine FT8-Empfangsfrequenz eingestellt.";
+    }
+
+    function processFT8Frame(values) {
+        let text = "";
+        for (const value of values) {
+            if (value === 0) break;
+            if (!Number.isInteger(value) || value < 0 || value > 255) return;
+            text += String.fromCharCode(value);
+        }
+        const tbody = document.getElementById("ft8Rows");
+        const scroll = document.getElementById("ft8Scroll");
+        const follow = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 24;
+        const fragment = document.createDocumentFragment();
+        let added = 0;
+        for (const record of text.split("\n")) {
+            if (!record) continue;
+            const fields = record.split("\t");
+            if (fields[0] === "S" && fields.length === 2) {
+                const dial = Number(fields[1]);
+                if (Number.isInteger(dial) && dial >= 0 && dial <= 0xffffffff) setFT8Status(dial);
+                continue;
+            }
+            if (fields[0] !== "D" || fields.length !== 4) continue;
+            const utc = Number(fields[1]), dial = Number(fields[2]);
+            if (!Number.isSafeInteger(utc) || utc < 0 || utc % 15 !== 0 ||
+                !Number.isInteger(dial) || dial <= 0 || dial > 0xffffffff) continue;
+            const parsed = fields[3].match(/^(\d{6})\s+([+-]?\d+)\s+([+-]?\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s+~\s?(.*)$/);
+            if (!parsed) continue;
+            const date = new Date(utc * 1000);
+            if (!Number.isFinite(date.valueOf())) continue;
+            const time = date.toISOString().slice(11, 19);
+            if (time.replaceAll(":", "") !== parsed[1]) continue;
+            const row = document.createElement("tr");
+            if (Math.floor(utc / 15) % 2 === 0) row.className = "ft8-slot-even";
+            const signalHz = dial + Number(parsed[4]); // USB dial frequency + audio offset.
+            const sender = globalThis.FT8Countries?.senderCallsign(parsed[5]) || "";
+            const country = globalThis.FT8Countries?.countryForCallsign(sender) || "—";
+            const cells = [time, (signalHz / 1e6).toFixed(7), parsed[2],
+                Number(parsed[3]).toFixed(2), country, parsed[5]];
+            for (const [column, value] of cells.entries()) {
+                const cell = document.createElement("td");
+                cell.textContent = value; // FT8 text, including <...>, is never HTML.
+                if (column === 4) {
+                    cell.className = "ft8-country";
+                    cell.title = sender ? `Rufzeichen: ${sender}` : "Senderrufzeichen nicht bekannt";
+                }
+                row.appendChild(cell);
+            }
+            fragment.appendChild(row);
+            ++added;
+        }
+        if (!added) return;
+        document.getElementById("ft8Empty").hidden = true;
+        tbody.appendChild(fragment);
+        let removedHeight = 0;
+        while (tbody.rows.length > FT8_MAX_ROWS) {
+            removedHeight += tbody.rows[0].getBoundingClientRect().height;
+            tbody.deleteRow(0);
+        }
+        document.getElementById("ft8Count").textContent = `${tbody.rows.length} Meldungen`;
+        if (follow) scroll.scrollTop = scroll.scrollHeight;
+        else if (removedHeight) scroll.scrollTop = Math.max(0, scroll.scrollTop - removedHeight);
+    }
+
+    function getCallsign() {
+        return document.getElementById("username").value.trim().toUpperCase();
+    }
+
+    function isValidCallsign(callsign) {
+        return /^[A-Z0-9/]{3,32}$/.test(callsign) && /[A-Z]/.test(callsign);
+    }
+
+    function syncLogin() {
+        if (!isValidCallsign(getCallsign())) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+            document.getElementById("bandBox").disabled = true;
+            document.getElementById("ft8Status").textContent = "Bitte Rufzeichen eingeben";
+            ft8DialHz = null;
+            audioQueue = [];
+            globalThis.NoiseReductionControl?.disconnect();
+            if (socket) {
+                const closing = socket;
+                socket = null;
+                closing.onopen = closing.onmessage = closing.onclose = null;
+                closing.close();
+            }
+            return;
+        }
+        setupWebSocket();
+        sendUserPW();
+    }
+
+    function setupWebSocket()
+    {
+        if (!isValidCallsign(getCallsign()) ||
+            (socket && socket.readyState !== WebSocket.CLOSED)) return;
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
         const fullHostname = window.location.hostname;
-        
-        // Extrahiert die Hauptdomain
-        const domainParts = fullHostname.split('.');
-        const mainDomain = domainParts.slice(-2).join('.');  // Die letzten zwei Teile, z.B. "dj0abr.de"
+        let socketUrl;
 
-        // WebSocket-URL basierend auf der Hauptdomain erstellen
-        const socketUrl = `wss://ws.${mainDomain}`;
+        if (fullHostname === "localhost" || fullHostname === "127.0.0.1" ||
+            /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(fullHostname)) {
+            socketUrl = `ws://${fullHostname}:9001`;
+        } else {
+            // Preserve the deployed gateway: sdr.db0sl.de -> wss://ws.db0sl.de.
+            // Its existing proxy accepts the root path, rather than /ws on the GUI host.
+            const multiPartTLDs = ['co.uk', 'edu.au', 'gov.uk', 'ac.uk', 'org.au', 'com.au'];
+            const domainParts = fullHostname.split('.');
+            let mainDomain;
+            for (const tld of multiPartTLDs) {
+                if (fullHostname.endsWith('.' + tld)) {
+                    mainDomain = domainParts.slice(-(tld.split('.').length + 1)).join('.');
+                    break;
+                }
+            }
+            if (!mainDomain) mainDomain = domainParts.slice(-2).join('.');
+            socketUrl = fullHostname === mainDomain ? `wss://${mainDomain}` : `wss://ws.${mainDomain}`;
+        }
 
-        socket = new WebSocket(socketUrl);
+        console.log("WebSocket URL:", socketUrl);
 
-        socket.binaryType = 'arraybuffer';  // Expect binary data
+        const connection = new WebSocket(socketUrl);
+        socket = connection;
+        socket.binaryType = "arraybuffer";
 
-        socket.onopen = () => {
-            console.log('WebSocket connected!');
+        socket.onopen = () =>
+        {
+            if (socket !== connection) return;
+            sendUserPW();
+            globalThis.NoiseReductionControl?.connect(connection);
+            console.log("WebSocket connected!");
+            document.getElementById("ft8Status").textContent = "Warte auf Empfänger …";
         };
 
-        socket.onmessage = (event) => {
-            updateFFT(event.data);  // When data is received, update and redraw
+        socket.onmessage = (event) =>
+        {
+            if (socket === connection) updateFFT(event.data);
         };
 
-        socket.onerror = (error) => {
-            console.error('WebSocket error:', error);
+        socket.onerror = (error) =>
+        {
+            console.error("WebSocket error:", error);
         };
 
-        socket.onclose = () => {
-            console.log('WebSocket disconnected. Attempting to reconnect...');
+        socket.onclose = () =>
+        {
+            if (socket !== connection) return;
+            socket = null;
+            globalThis.NoiseReductionControl?.disconnect();
+            document.getElementById("bandBox").disabled = true;
+            console.log("WebSocket disconnected. Attempting to reconnect...");
+            ft8DialHz = null;
+            document.getElementById("ft8Status").textContent = "Verbindung unterbrochen";
             retryConnection();
         };
     }
 
     function retryConnection() {
-        setTimeout(() => {
+        if (!isValidCallsign(getCallsign())) return;
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
             console.log(`Reconnecting... `);
             setupWebSocket();  // Re-attempt connection
         }, reconnectInterval);
     }
-
-    // Call setupWebSocket initially to establish the connection
-    setupWebSocket();
 
     // Scaling function that maps a value from 0-1024 to the canvas width
     function scaleX(value) {
@@ -595,6 +986,7 @@
                     if(bandchanged == 146) text = "2m 145-145,5 MHz";
                     if(bandchanged == 147) text = "2m 145,5-146 MHz";
                     if(bandchanged == 438) text = "2m 438,8-439,3 MHz";
+                    if(bandchanged == 1090) text = "ADS-B";
                     if(bandchanged == 0) text = "LSB";
                     if(bandchanged == 1) text = "USB";
                     if(bandchanged == 2) text = "FM";
@@ -700,6 +1092,580 @@
         return averagedLine;
     }
 
+    // ================= ADS-B Stream Handling =================
+    let adsbStreamBuf = "";                  // Puffer für JSON-Fragmente
+    const adsbAircraft = new Map();          // key = hex, value = last known state
+    let adsbLastRender = 0;
+
+    function processAdsbChunk(chunkStr) {
+        // Chunk an Puffer anhängen
+        adsbStreamBuf += chunkStr;
+
+        // Wir extrahieren JSON-Objekte, indem wir nach vollständigen { ... } Blöcken suchen.
+        // Robust gegen "}{", Newlines, und auch wenn vorne Müll steht.
+        let i = 0;
+
+        // Optional: falls vor dem ersten '{' Müll steht -> weg
+        const firstBrace = adsbStreamBuf.indexOf('{');
+        if (firstBrace > 0) adsbStreamBuf = adsbStreamBuf.slice(firstBrace);
+
+        while (i < adsbStreamBuf.length) {
+            // Suche Start eines JSON-Objekts
+            const start = adsbStreamBuf.indexOf('{', i);
+            if (start === -1) {
+                // Kein Start gefunden -> Puffer leeren (nur Müll) oder behalten?
+                // Wir behalten maximal ein kleines Reststück
+                if (adsbStreamBuf.length > 4096) adsbStreamBuf = adsbStreamBuf.slice(-1024);
+                return;
+            }
+
+            // Scanne bis Ende eines vollständigen JSON-Objekts per Brace-Counting (mit String-Escapes)
+            let depth = 0;
+            let inString = false;
+            let escape = false;
+            let end = -1;
+
+            for (let j = start; j < adsbStreamBuf.length; j++) {
+                const c = adsbStreamBuf[j];
+
+                if (inString) {
+                    if (escape) {
+                        escape = false;
+                    } else if (c === '\\') {
+                        escape = true;
+                    } else if (c === '"') {
+                        inString = false;
+                    }
+                    continue;
+                } else {
+                    if (c === '"') {
+                        inString = true;
+                        continue;
+                    }
+                    if (c === '{') depth++;
+                    if (c === '}') depth--;
+
+                    if (depth === 0) {
+                        end = j;
+                        break;
+                    }
+                }
+            }
+
+            if (end === -1) {
+                // Noch kein vollständiges Objekt -> warten auf nächsten Chunk
+                // Aber wenn vor dem start viel Müll ist, kürzen:
+                if (start > 0) adsbStreamBuf = adsbStreamBuf.slice(start);
+                return;
+            }
+
+            const jsonText = adsbStreamBuf.slice(start, end + 1);
+
+            // Entferne das Objekt aus dem Puffer
+            adsbStreamBuf = adsbStreamBuf.slice(end + 1);
+            i = 0; // wir starten neu, weil der Buffer jetzt anders ist
+
+            // Parsen
+            try {
+                const obj = JSON.parse(jsonText);
+                handleAdsbObject(obj);
+            } catch (e) {
+                // Wenn parsing fehlschlägt, war es wohl doch nicht sauber -> weiter versuchen
+                // (Puffer nicht komplett killen, nur weitermachen)
+                // Optional: console.log("ADSB JSON parse fail:", e, jsonText);
+            }
+
+            // Optional: wieder Müll vor nächstem '{' weg
+            const fb = adsbStreamBuf.indexOf('{');
+            if (fb > 0) adsbStreamBuf = adsbStreamBuf.slice(fb);
+            if (fb === -1 && adsbStreamBuf.length > 1024) adsbStreamBuf = "";
+        }
+    }
+
+    function handleAdsbObject(o) {
+        if (!o || !o.hex) return;
+
+        const hex = String(o.hex).toUpperCase();
+        const prev = adsbAircraft.get(hex) || {};
+
+        const merged = { ...prev, ...o };
+
+        merged._lastUpdateUnix = Date.now() / 1000;
+
+        if (!prev._firstSeenUnix) {
+            merged._firstSeenUnix = merged._lastUpdateUnix;
+        }
+
+        adsbAircraft.set(hex, merged);
+
+
+        const nowMs = Date.now();
+        if (nowMs - adsbLastRender > 200) {
+            adsbLastRender = nowMs;
+            if (isAdsbSelected()) {
+                if (isMapEnabled()) renderAdsbMapMarkers();
+                else renderAdsbTable();
+            }
+        }
+    }
+
+
+    function isAdsbSelected() {
+        return String(document.getElementById("bandBox").value) === "1090";
+    }
+
+    function renderAdsbTable() {
+        const tbody = document.querySelector("#adsbTable tbody");
+        if (!tbody) return;
+
+        // Array bauen und sortieren (z.B. nach "seen" aufsteigend oder nach lastUpdate)
+        const nowUnix = Date.now() / 1000;
+
+        const rows = Array.from(adsbAircraft.values())
+            .map(a => {
+                const seen = nowUnix - (a._lastUpdateUnix || nowUnix);
+                return { ...a, _seenCalc: seen };
+            })
+
+            // ======= HIER: diesen sort()-Block NEU =======
+            .sort((a, b) => {
+                // wenn noch nichts gewählt: wie vorher nach ICAO (hex)
+                if (!adsbSortCol) {
+                    if ((a.hex || "") < (b.hex || "")) return -1;
+                    if ((a.hex || "") > (b.hex || "")) return 1;
+                    return 0;
+                }
+
+                let va, vb;
+
+                switch (adsbSortCol) {
+                    case "hex":    va = a.hex || ""; vb = b.hex || ""; break;
+                    case "flight": va = (a.flight || "").trim(); vb = (b.flight || "").trim(); break;
+
+                    case "alt":    va = a.alt_baro ?? a.alt_geom; vb = b.alt_baro ?? b.alt_geom; break;
+                    case "gs":     va = a.gs; vb = b.gs; break;
+                    case "track":  va = a.track ?? a.true_heading ?? a.mag_heading; vb = b.track ?? b.true_heading ?? b.mag_heading; break;
+
+                    case "lat":    va = a.lat; vb = b.lat; break;
+                    case "lon":    va = a.lon; vb = b.lon; break;
+
+                    case "rssi":   va = a.rssi; vb = b.rssi; break;
+                    case "seen":   va = a._seenCalc; vb = b._seenCalc; break;
+
+                    case "dist": {
+                        const latA = Number(a.lat), lonA = Number(a.lon);
+                        const latB = Number(b.lat), lonB = Number(b.lon);
+                        va = (isFinite(latA) && isFinite(lonA)) ? distanceKm(HOME_LAT, HOME_LON, latA, lonA) : Infinity;
+                        vb = (isFinite(latB) && isFinite(lonB)) ? distanceKm(HOME_LAT, HOME_LON, latB, lonB) : Infinity;
+                        break;
+                    }
+
+                    default:
+                        return 0;
+                }
+
+                // Strings sortieren
+                if (typeof va === "string" || typeof vb === "string") {
+                    return String(va).localeCompare(String(vb)) * adsbSortDir;
+                }
+
+                // Zahlen sortieren
+                va = Number(va);
+                vb = Number(vb);
+                if (!isFinite(va)) va = Infinity;
+                if (!isFinite(vb)) vb = Infinity;
+
+                return (va - vb) * adsbSortDir;
+            })
+            // ======= ENDE sort()-Block =======
+
+            .slice(0, 80);
+
+        // ... ab hier bleibt dein Code unverändert ...
+        tbody.innerHTML = rows.map(a => {
+            const stale = a._seenCalc > 30;
+            const isNew = (Date.now() / 1000 - (a._firstSeenUnix || 0)) < 3;
+            const rowStyle = isNew ? 'style="background:#e8ffe8;"' :
+                            (stale ? 'style="color:#999; background:#f7f7f7;"' : '');
+            const metric = isMetric();
+
+            let altFt = (a.alt_baro ?? a.alt_geom ?? "");
+            let gsKt  = (a.gs ?? "");
+
+            let altOut = altFt;
+            let gsOut  = gsKt;
+
+            if (metric) {
+                const altNum = Number(altFt);
+                if (isFinite(altNum)) altOut = ftToM(altNum);
+
+                const gsNum = Number(gsKt);
+                if (isFinite(gsNum)) gsOut = ktToKmh(gsNum);
+            }
+
+            const trk = (a.track ?? a.true_heading ?? a.mag_heading ?? "");
+            const lat = (a.lat ?? "");
+            const lon = (a.lon ?? "");
+
+            let distOut = "";
+            const latNum = Number(a.lat);
+            const lonNum = Number(a.lon);
+            if (isFinite(latNum) && isFinite(lonNum)) {
+                const dKm = distanceKm(HOME_LAT, HOME_LON, latNum, lonNum);
+                distOut = isMetric() ? dKm : kmToNm(dKm);
+            }
+
+            const rssi = (a.rssi ?? "");
+            const seen = (a._seenCalc ?? "").toFixed ? a._seenCalc.toFixed(1) : a._seenCalc;
+
+            return `
+            <tr ${rowStyle}>
+            <td style="border-bottom:1px solid #eee; padding:6px;">${escapeHtml(a.hex || "")}</td>
+            <td style="border-bottom:1px solid #eee; padding:6px;">${escapeHtml(a.flight || "")}</td>          
+            <td style="border-bottom:1px solid #eee; padding:6px; text-align:right;">${fmtNum(altOut, 0)}</td>
+            <td style="border-bottom:1px solid #eee; padding:6px; text-align:right;">${fmtNum(gsOut, 1)}</td>
+            <td style="border-bottom:1px solid #eee; padding:6px; text-align:right;">${fmtNum(trk, 1)}</td>
+            <td style="border-bottom:1px solid #eee; padding:6px; text-align:right;">${fmtNum(lat, 5)}</td>
+            <td style="border-bottom:1px solid #eee; padding:6px; text-align:right;">${fmtNum(lon, 5)}</td>
+            <td style="border-bottom:1px solid #eee; padding:6px; text-align:right;">${fmtNum(distOut, 1)}</td>
+            <td style="border-bottom:1px solid #eee; padding:6px; text-align:right;">${fmtNum(rssi, 1)}</td>
+            <td style="border-bottom:1px solid #eee; padding:6px; text-align:right;">${escapeHtml(String(seen ?? ""))}</td>
+            </tr>`;
+        }).join("");
+    }
+
+    function fmtNum(v, decimals) {
+        if (v === null || v === undefined || v === "") return "";
+        const n = Number(v);
+        if (!isFinite(n)) return escapeHtml(String(v));
+        return n.toFixed(decimals);
+    }
+
+    function escapeHtml(s) {
+        return String(s)
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+    }
+
+    // =============== ADS-B MAP ===================
+    let adsbMap = null;
+    let adsbMapInited = false;
+    const adsbMarkers = new Map(); // key=hex -> Leaflet marker
+    let homeMarker = null;
+    let homeRings = [];
+
+    function isMapEnabled() {
+        const cb = document.getElementById("mapCheckbox");
+        return cb && cb.checked;
+    }
+
+    function initAdsbMapOnce() {
+        if (adsbMapInited) return;
+        adsbMapInited = true;
+
+        // default view: wenn du eine Station-Position hast, setz die hier rein
+        const centerLat = 48.137;   // Beispiel (München)
+        const centerLon = 11.575;
+
+        adsbMap = L.map("adsbMap", {
+            preferCanvas: true
+        }).setView([centerLat, centerLon], 8);
+
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxZoom: 18,
+            attribution: "&copy; OpenStreetMap contributors"
+        }).addTo(adsbMap);
+        // Home Marker
+        homeMarker = L.marker([HOME_LAT, HOME_LON], { title: "Home Station" }).addTo(adsbMap);
+        homeMarker.bindPopup("<b>Home Station</b><br>" + HOME_LAT.toFixed(6) + ", " + HOME_LON.toFixed(6));
+
+        // Range-Ringe (km -> Meter)
+        const ringKm = [50, 100, 150, 200];
+        for (const km of ringKm) {
+            const c = L.circle([HOME_LAT, HOME_LON], {
+                radius: km * 1000,   // Meter
+                weight: 1,
+                fillOpacity: 0.0
+            }).addTo(adsbMap);
+            homeRings.push(c);
+        }
+    }
+
+    function showAdsbMap(show) {
+        const mapDiv = document.getElementById("adsbMap");
+        const tableDiv = document.getElementById("adsbTable")?.closest("div"); // dein overflow-div um die Tabelle
+
+        if (!mapDiv || !tableDiv) return;
+
+        if (show) {
+            tableDiv.style.display = "none";
+            mapDiv.style.display = "block";
+            initAdsbMapOnce();
+
+            // Leaflet braucht oft ein invalidateSize(), wenn der Container vorher display:none war
+            setTimeout(() => adsbMap && adsbMap.invalidateSize(), 50);
+
+            renderAdsbMapMarkers();
+            if (isAutoZoomEnabled()) {
+                setTimeout(() => autoZoomToAircraft(), 150);
+            }
+        } else {
+            mapDiv.style.display = "none";
+            tableDiv.style.display = "block";
+            // Tabelle direkt refreshen
+            renderAdsbTable();
+        }
+    }
+
+    function makePopupText(a) {
+    const metric = isMetric();
+
+    let altFt = (a.alt_baro ?? a.alt_geom ?? "");
+    let gsKt  = (a.gs ?? "");
+
+    let altOut = altFt;
+    let gsOut  = gsKt;
+
+    if (metric) {
+        const altNum = Number(altFt);
+        if (isFinite(altNum)) altOut = ftToM(altNum);
+
+        const gsNum = Number(gsKt);
+        if (isFinite(gsNum)) gsOut = ktToKmh(gsNum);
+    }
+
+    const altUnit = metric ? "m" : "ft";
+    const gsUnit  = metric ? "km/h" : "kt";
+
+    const flight = (a.flight ?? "").trim();
+    const trk = (a.track ?? a.true_heading ?? a.mag_heading ?? "");
+
+    return `
+        <b>${escapeHtml(flight || a.hex || "")}</b><br>
+        ICAO: ${escapeHtml(a.hex || "")}<br>
+        Alt: ${fmtNum(altOut, 0)} ${altUnit}<br>
+        GS: ${fmtNum(gsOut, 0)} ${gsUnit}<br>
+        Track: ${fmtNum(trk, 0)}°
+    `;
+    }
+
+    function planeSvgHtml(headingDeg = 0, color = "#1f78ff") {
+        const rot = isFinite(headingDeg) ? headingDeg : 0;
+
+        // kleines Flugzeug-Symbol als SVG, rotiert über CSS transform
+        return `
+        <div style="
+            width:26px; height:26px;
+            transform: rotate(${rot}deg);
+            transform-origin: 50% 50%;
+            filter: drop-shadow(0 1px 1px rgba(0,0,0,.35));
+            ">
+            <svg viewBox="0 0 64 64" width="26" height="26" xmlns="http://www.w3.org/2000/svg">
+            <!-- simple plane shape -->
+            <path d="M30 4
+                    L34 4
+                    L38 24
+                    L58 34
+                    L58 38
+                    L38 34
+                    L34 60
+                    L30 60
+                    L26 34
+                    L6 38
+                    L6 34
+                    L26 24
+                    Z"
+                    fill="${color}" stroke="rgba(0,0,0,.35)" stroke-width="2" />
+            </svg>
+        </div>`;
+    }
+
+    function makePlaneIcon(headingDeg, color) {
+        return L.divIcon({
+            className: "", // verhindert default leaflet-divicon styling
+            html: planeSvgHtml(headingDeg, color),
+            iconSize: [26, 26],
+            iconAnchor: [13, 13] // Mitte
+        });
+    }
+
+    function renderAdsbMapMarkers() {
+        if (!adsbMap || !isMapEnabled()) return;
+
+        const nowUnix = Date.now() / 1000;
+
+        for (const a of adsbAircraft.values()) {
+            // Nur wenn Position vorhanden
+            const lat = Number(a.lat);
+            const lon = Number(a.lon);
+            if (!isFinite(lat) || !isFinite(lon)) continue;
+
+            // optional: stale rauslassen
+            const seen = nowUnix - (a._lastUpdateUnix || nowUnix);
+            if (seen > 60) continue;
+
+            const hex = String(a.hex).toUpperCase();
+            let m = adsbMarkers.get(hex);
+
+            const trk = Number(a.track ?? a.true_heading ?? a.mag_heading ?? 0);
+
+            const ACTIVE_COLOR = "#e53935";   // rot, sehr gut sichtbar
+            const STALE_COLOR  = "#999999";
+
+            const color = (seen > 15) ? STALE_COLOR : ACTIVE_COLOR;
+
+
+            if (!m) {
+                m = L.marker([lat, lon], {
+                    title: (a.flight || hex),
+                    icon: makePlaneIcon(trk, color)
+                });
+                m.addTo(adsbMap);
+                adsbMarkers.set(hex, m);
+            } else {
+                m.setLatLng([lat, lon]);
+                // Icon updaten (Rotation / Farbe)
+                m.setIcon(makePlaneIcon(trk, color));
+                // ===== TRAIL UPDATE =====
+                const trailColor = colorFromIcao(hex);
+
+                let t = adsbTrails.get(hex);
+                if (!t) {
+                    // Start mit einem Punkt (sichtbar wird’s erst ab 2 Punkten)
+                    const pts = [[lat, lon]];
+                    const line = L.polyline(pts, {
+                        color: trailColor,
+                        weight: 3,      // etwas dicker zum Testen
+                        opacity: 1.0    // volle Deckkraft zum Testen
+                    }).addTo(adsbMap);
+
+                    t = { line, points: pts, lastAddUnix: nowUnix };
+                    adsbTrails.set(hex, t);
+                } else {
+                    const last = t.points[t.points.length - 1];
+
+                    // Wichtig: solange <2 Punkte immer hinzufügen, damit was sichtbar wird
+                    let shouldAdd = (t.points.length < 2);
+
+                    // Danach optional Distanzfilter
+                    if (!shouldAdd) {
+                        const d = last ? distanceMeters(last[0], last[1], lat, lon) : Infinity;
+                        shouldAdd = (d >= TRAIL_MIN_DIST_M);
+                    }
+
+                    if (shouldAdd) {
+                        t.points.push([lat, lon]);
+
+                        if (t.points.length > TRAIL_MAX_POINTS) {
+                            t.points.splice(0, t.points.length - TRAIL_MAX_POINTS);
+                        }
+
+                        t.line.setLatLngs(t.points);
+                        t.lastAddUnix = nowUnix;
+                    }
+                }
+
+            }
+
+            // Popup/Tooltip aktualisieren (nicht zu aggressiv – aber ok)
+            m.bindPopup(makePopupText(a));
+        }
+
+        // Marker entfernen, wenn Flugzeug zu alt oder aus Map gelöscht
+        const maxAge = 120;
+        for (const [hex, marker] of adsbMarkers.entries()) {
+            const a = adsbAircraft.get(hex);
+            const last = a?._lastUpdateUnix || 0;
+            if (!a || (nowUnix - last > maxAge)) {
+            adsbMap.removeLayer(marker);
+            adsbMarkers.delete(hex);
+            }
+        }
+
+        // ===== TRAIL CLEANUP =====
+        for (const [hex, t] of adsbTrails.entries()) {
+            const a = adsbAircraft.get(hex);
+            const last = a?._lastUpdateUnix || 0;
+
+            if (!a || (nowUnix - last > TRAIL_MAX_AGE_S)) {
+                adsbMap.removeLayer(t.line);
+                adsbTrails.delete(hex);
+            }
+        }
+
+        const now = Date.now();
+        if (isAutoZoomEnabled() && (now - lastAutoZoom > 4000)) {
+            lastAutoZoom = now;
+            autoZoomToAircraft();
+        }
+    }
+
+    let lastAutoZoom = 0;
+
+    function autoZoomToAircraft() {
+        if (!adsbMap) return;
+
+        const points = [];
+
+        for (const a of adsbAircraft.values()) {
+            const lat = Number(a.lat);
+            const lon = Number(a.lon);
+            if (isFinite(lat) && isFinite(lon)) {
+            points.push([lat, lon]);
+            }
+        }
+
+        if (points.length === 0) return;
+
+        // nur ein Flugzeug → moderater Zoom
+        if (points.length === 1) {
+            adsbMap.setView(points[0], 9, { animate: true });
+            return;
+        }
+
+        const bounds = L.latLngBounds(points);
+
+        adsbMap.fitBounds(bounds, {
+            padding: [60, 60],   // << Rand in Pixeln
+            maxZoom: 12,         // verhindert zu starkes Reinzoomen
+            animate: true
+        });
+    }
+
+    // ===== Home Station (fix) =====
+    // Position DB0SL
+    const HOME_LAT = 48.87546744465768;
+    const HOME_LON = 13.023247027567729;
+
+    function deg2rad(d) { return d * Math.PI / 180; }
+
+    // Haversine Distanz in km
+    function distanceKm(lat1, lon1, lat2, lon2) {
+        const R = 6371.0; // km
+        const dLat = deg2rad(lat2 - lat1);
+        const dLon = deg2rad(lon2 - lon1);
+        const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    function kmToNm(km) { return km / 1.852; }
+
+    function isAutoZoomEnabled() {
+        const cb = document.getElementById("autozoomCheckbox");
+        return cb && cb.checked;
+    }
+
+
+    // ==================
+
     // Function to handle new FFT data received over WebSocket
     let idvalue;
     let authentication = true;
@@ -707,8 +1673,18 @@
 
     function updateFFT(data) {
         if (data.byteLength === 4100 || data.byteLength === 1028) {
-            let dataView = new DataView(event.data); // Create a DataView from the ArrayBuffer
+            let dataView = new DataView(data); // Create a DataView from the ArrayBuffer
             idvalue = dataView.getFloat32(0, true);
+            if (idvalue === 8) {
+                if (data.byteLength === 4100)
+                    globalThis.NoiseReductionControl?.handleState(new Float32Array(data));
+                return;
+            }
+            if (idvalue === 7) {
+                if (data.byteLength !== 4100) return;
+                processFT8Frame(new Float32Array(data, 4, 1024));
+                return;
+            }
 
             if(idvalue < 0.5 && idvalue > -0.5) {
                 // 480kHz waterfall on top
@@ -764,6 +1740,18 @@
                 //console.log("authentication failed");
                 authentication = false;
             }
+
+            if(idvalue < 6.5 && idvalue > 5.5) {
+                floatArray = new Float32Array(data, 4, 1024);
+                let adsb = "";
+    
+                for (let i = 0; i < floatArray.length; i++) {
+                    const value = floatArray[i];
+                    if (value === 0) break;
+                    adsb += String.fromCharCode(Math.round(value)); // Round to ensure integer value
+                }
+                processAdsbChunk(adsb);
+            }
         } else {
             console.error("Data length is not 4100", data.byteLength);
         }
@@ -787,6 +1775,51 @@
 
     // make x labels for upper waterfall
     function makeLabels480(configData) {
+        // ===== ADS-B Sonderfall: feste Skala 1089 .. 1091 MHz =====
+        if (isAdsbSelected()) {
+            label480Ctx.fillStyle = 'black';
+            label480Ctx.fillRect(0, 0, label480Canvas.width, label480Canvas.height);
+
+            label480Ctx.font = "10px Arial";
+            label480Ctx.fillStyle = "yellow";
+            label480Ctx.textAlign = "center";
+            label480Ctx.textBaseline = "middle";
+
+            const h = label480Canvas.height / 2;
+
+            const startMHz = 1089.0;
+            const endMHz   = 1091.0;
+            const stepMHz  = 0.25;      // 250 kHz
+            const spanMHz  = endMHz - startMHz;
+
+            for (let f = startMHz; f <= endMHz + 1e-6; f += stepMHz) {
+                const rel = (f - startMHz) / spanMHz;   // 0 .. 1
+                const x = rel * label480Canvas.width;
+
+                // Rand etwas einrücken
+                let xx = x;
+                if (f === startMHz) xx += 8;
+                if (f === endMHz)   xx -= 8;
+
+                // Textformat
+                let text;
+                if (Number.isInteger(f)) {
+                    text = f.toFixed(0);        // 1089 / 1090 / 1091
+                } else {
+                    text = f.toFixed(2);        // 1089.25 etc.
+                }
+
+                label480Ctx.save();
+                label480Ctx.translate(xx, h);
+                label480Ctx.rotate(-Math.PI / 2);
+                label480Ctx.fillText(text, -7, 0);
+                label480Ctx.restore();
+            }
+
+            return;
+        }
+        // ===== ENDE ADS-B =====
+        
         label480Ctx.fillStyle = 'black';
         label480Ctx.fillRect(0, 0, label480Canvas.width, label480Canvas.height);
 
@@ -838,8 +1871,12 @@
         const formattedFrequency = integerPart + ',' + decimalPart.slice(0,3) + "." + decimalPart.slice(3,6);
 
         // Write the formatted result into the div with id "freq"
-        document.getElementById("freq").innerText = formattedFrequency + " MHz";
-
+        const freqDiv = document.getElementById("freq");
+        if (isAdsbSelected()) {
+            freqDiv.innerText = (tunedfrequency / 1e6).toFixed(1).replace('.', ',') + " MHz";
+        } else {
+            freqDiv.innerText = formattedFrequency + " MHz";
+        }
 
         //labelCtx.clearRect(0, 0, labelCanvas.width, labelCanvas.height);
         labelCtx.fillStyle = 'black';
@@ -932,11 +1969,13 @@
         if (frequency >= 438800000 && frequency <= 439300000) return 438;
         if (frequency >= 430000000 && frequency <= 440000000) return 70;
         if (frequency >= 441000000 && frequency <= 460000000) return 446;
+        if (frequency >= 1080000000 && frequency <= 1099000000) return 1090;
 
         return null;
     }
 
     function handle_config(configData) {
+
         // big waterfall start QRG
         bigFFTstartQRG = configData[3];
 
@@ -946,6 +1985,7 @@
         // tuned BAND
         let fidx = getHamRadioBand(configData[0]);
         document.getElementById('bandBox').value = fidx;
+        updateInfoVisibility();
 
         // shift to the band start qrg
         // configData[1]: -240000 ... +240000
@@ -959,12 +1999,7 @@
 
         usernumber = configData[5];
         const selectBox = document.getElementById("bandBox");
-        if(usernumber == 1) {
-            selectBox.disabled = false;
-        }
-        else {
-            selectBox.disabled = true;
-        }
+        selectBox.disabled = usernumber !== 1 || !isValidCallsign(getCallsign());
 
         drawTuningLine();
         draw_connlines();
@@ -1092,7 +2127,7 @@
     // Send the FFT index to the server
     function sendFreqOffsetToServer(FreqOffset) {
         //console.log("FreqOffset:",FreqOffset);
-        if (socket.readyState === WebSocket.OPEN) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
             let data = new Float32Array(2);
             data[0] = 0;  // ID = 0 (indicating a waterfall offset frequency)
             data[1] = FreqOffset;
@@ -1101,7 +2136,7 @@
     }
 
     function sendBandToServer(index) {
-        if (socket.readyState === WebSocket.OPEN) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
             let data = new Float32Array(2);
             data[0] = 1;  // ID = 1 (indicating a band selection)
             data[1] = index;
@@ -1110,7 +2145,7 @@
     }
 
     function sendFilterToServer(index) {
-        if (socket.readyState === WebSocket.OPEN) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
             let data = new Float32Array(2);
             data[0] = 3;  // ID = 3 (indicating a filter selection)
             data[1] = index;
@@ -1119,7 +2154,7 @@
     }
 
     function sendModeToServer(index) {
-        if (socket.readyState === WebSocket.OPEN) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
             let data = new Float32Array(2);
             data[0] = 2;  // ID = 2 (indicating a mode selection)
             data[1] = index;
@@ -1128,21 +2163,13 @@
     }
 
     function sendUserPW() {
-        if (socket.readyState === WebSocket.OPEN) {
-            const username = document.getElementById("username").value;
-            const password = document.getElementById("password").value;
-            const combinedText = username + ":" + password; // Using ":" as a separator for clarity
-
-            // Convert combined text to Float32Array
-            const encoder = new TextEncoder();
-            const bytes = encoder.encode(combinedText);
-            const floatArray = new Float32Array(bytes.length+1);
-
-            floatArray[0] = 4;  // ID for user and PW
-            for (let i = 0; i < bytes.length; i++) {
-                floatArray[i+1] = bytes[i];
-            }
-
+        const callsign = getCallsign();
+        if (socket && socket.readyState === WebSocket.OPEN && isValidCallsign(callsign)) {
+            // Retain the existing protocol; no separate password is required.
+            const bytes = new TextEncoder().encode(callsign + ":" + callsign);
+            const floatArray = new Float32Array(bytes.length + 1);
+            floatArray[0] = 4;
+            for (let i = 0; i < bytes.length; i++) floatArray[i + 1] = bytes[i];
             socket.send(floatArray.buffer);
         }
     }
@@ -1236,12 +2263,51 @@
         labelCtx.stroke(); // Draw the line
     }
 
+    function updateInfoVisibility() {
+        const infoc = document.querySelector(".infocontainer");
+        const adsbC = document.getElementById("adsbContainer");
+
+        // unterer Wasserfall + Labels (xlabelCanvas-Bereich)
+        const lowerWf = document.getElementById("lowerWaterfall");
+        const lowerLbl = document.getElementById("lowerWaterfallLabels");
+
+        if (isAdsbSelected()) {
+            if (!adsbSortCol) {
+                adsbSortCol = "dist";
+                adsbSortDir = 1;
+
+                const th = document.querySelector('#adsbTable th[data-col="dist"]');
+                if (th) th.classList.add("sort-asc");
+            }
+            if (infoc) infoc.style.display = "none";
+            if (adsbC) adsbC.style.display = "block";
+
+            // unteren Wasserfall ausblenden
+            if (lowerWf) lowerWf.style.display = "none";
+            if (lowerLbl) lowerLbl.style.display = "none";
+
+            updateAdsbHeaders();
+            renderAdsbTable();
+            const mapCb = document.getElementById("mapCheckbox");
+            if (mapCb && mapCb.checked) showAdsbMap(true);
+        } else {
+            if (adsbC) adsbC.style.display = "none";
+            if (infoc) infoc.style.display = "grid";
+
+            // unteren Wasserfall wieder einblenden
+            if (lowerWf) lowerWf.style.display = "block";
+            if (lowerLbl) lowerLbl.style.display = "flex"; // passt zu deinem .gui-space1 flex-layout
+        }
+        updateUpperWaterfallHeight();
+    }
+
     function updateBand() {
         const bandBox = document.getElementById("bandBox");
         const selectedValue = parseFloat(bandBox.value);
         bandchanged = selectedValue; // draws horizontal line and label into the waterfall
         
         sendBandToServer(selectedValue);
+        updateInfoVisibility();
     }
 
     function updateMode() {
@@ -1386,30 +2452,105 @@ window.onload = function () {
 // Run sendUserPW every second
 setInterval(sendUserPW, 1000);
 
-    function saveToLocalStorage() {
-        const username = document.getElementById("username").value;
-        let password = document.getElementById("password").value;
+window.addEventListener("load", function() {
+    updateInfoVisibility();
+});
 
-        // use these two line as long as the password is not in use
-        password = username;
-        document.getElementById("password").value = password;
-        
-        // Save values to local storage
-        localStorage.setItem("username", username);
-        localStorage.setItem("password", password);
+setInterval(() => {
+    const nowUnix = Date.now() / 1000;
+    const maxAge = 120; // Sekunden
+
+    for (const [hex, a] of adsbAircraft.entries()) {
+        const last = a._lastUpdateUnix || 0;
+        if (nowUnix - last > maxAge) adsbAircraft.delete(hex);
     }
 
-    // Add event listeners to call saveToLocalStorage on input
-    document.getElementById("username").addEventListener("input", saveToLocalStorage);
-    document.getElementById("password").addEventListener("input", saveToLocalStorage);
+    if (isAdsbSelected()) renderAdsbTable();
+}, 5000);
 
-    // Load stored values into the input fields on page load
+window.addEventListener("load", function() {
+  const cb = document.getElementById("metricCheckbox");
+  if (cb) {
+    // optional: merken
+    cb.checked = (localStorage.getItem("adsb_metric") === "1");
+
+    cb.addEventListener("change", () => {
+    localStorage.setItem("adsb_metric", cb.checked ? "1" : "0");
+    updateAdsbHeaders();
+    if (isAdsbSelected()) renderAdsbTable();
+    });
+
+  }
+});
+
+window.addEventListener("load", function() {
+  const cb = document.getElementById("mapCheckbox");
+  if (!cb) return;
+
+  cb.checked = (localStorage.getItem("adsb_map") === "1");
+
+  cb.addEventListener("change", () => {
+    localStorage.setItem("adsb_map", cb.checked ? "1" : "0");
+    if (isAdsbSelected()) showAdsbMap(cb.checked);
+  });
+
+  // falls ADS-B beim Laden schon aktiv ist:
+  if (isAdsbSelected()) showAdsbMap(cb.checked);
+});
+
+window.addEventListener("load", function() {
+  const cb = document.getElementById("autozoomCheckbox");
+  if (!cb) return;
+
+  cb.checked = (localStorage.getItem("adsb_autozoom") !== "0"); // default: EIN
+
+  cb.addEventListener("change", () => {
+    localStorage.setItem("adsb_autozoom", cb.checked ? "1" : "0");
+
+    // wenn eingeschaltet und Map aktiv: sofort einmal zoomen
+    if (cb.checked && isAdsbSelected() && isMapEnabled()) {
+      autoZoomToAircraft();
+    }
+  });
+});
+
+window.addEventListener("load", () => {
+    document.querySelectorAll("#adsbTable th[data-col]").forEach(th => {
+        th.addEventListener("click", () => {
+            const col = th.dataset.col;
+
+            if (adsbSortCol === col) {
+                adsbSortDir *= -1; // Richtung umdrehen
+            } else {
+                adsbSortCol = col;
+                adsbSortDir = 1;
+            }
+
+            // Pfeile zurücksetzen
+            document.querySelectorAll("#adsbTable th")
+                .forEach(h => h.classList.remove("sort-asc", "sort-desc"));
+
+            // Pfeil setzen
+            th.classList.add(adsbSortDir === 1 ? "sort-asc" : "sort-desc");
+
+            renderAdsbTable();
+        });
+    });
+});
+
+
+    function saveToLocalStorage() {
+        const callsign = getCallsign();
+        localStorage.setItem("username", callsign);
+        document.getElementById("password").value = callsign;
+        localStorage.setItem("password", callsign);
+        syncLogin();
+    }
+
+    document.getElementById("username").addEventListener("input", saveToLocalStorage);
     window.addEventListener("load", function() {
-        const savedUsername = localStorage.getItem("username") || "";
-        const savedPassword = localStorage.getItem("password") || "";
-        
-        document.getElementById("username").value = savedUsername;
-        document.getElementById("password").value = savedPassword;
+        document.getElementById("username").value = localStorage.getItem("username") || "";
+        saveToLocalStorage();
     });
 
     function toggleMenu() {

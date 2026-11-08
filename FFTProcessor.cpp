@@ -1,6 +1,7 @@
 #include "FFTProcessor.h"
 #include "ClientManager.h"
 #include "global.h"
+#include "SDRQUEUE.h"
 #include <iostream>
 #include <algorithm>
 #include <stdexcept>
@@ -25,12 +26,16 @@ FFTProcessor::FFTProcessor() : fftPlan(nullptr), fftOut(nullptr) {
 // Destructor (clean up FFT resources)
 FFTProcessor::~FFTProcessor() {
     cleanupFFT();
+    if (resamp_480k_) { msresamp_crcf_destroy(resamp_480k_); resamp_480k_ = nullptr; }
 }
 
 // Initialize the FFT resources
 void FFTProcessor::initFFT() {
     fftOut = (fftwf_complex*) fftwf_malloc(sizeof(fftwf_complex) * FFT_SIZE);
     fftPlan = fftwf_plan_dft_1d(FFT_SIZE, nullptr, fftOut, FFTW_FORWARD, FFTW_ESTIMATE);
+
+    // Create the fractional resampler 2400 to 480 kS/s
+    resamp_480k_ = msresamp_crcf_create(R_480, AS_dB);
 }
 
 // Cleanup FFT resources
@@ -44,11 +49,7 @@ void FFTProcessor::cleanupFFT() {
         fftOut = nullptr;
     }
 }
-
-void FFTProcessor::pushFFTinputSamples(SampleData data) {
-    queue480.push(data);
-}
-
+ 
 // Apply a Hamming window to the IQ samples
 void FFTProcessor::applyWindow(vector<complex<float>>& data) {
     for (size_t i = 0; i < data.size(); ++i) {
@@ -63,21 +64,35 @@ void FFTProcessor::processFFTThread() {
     vector<complex<float>> iqSamples(FFT_SIZE);
 
     while (keeprunning) {
+        if(isADSB) {
+            std::this_thread::sleep_for(std::chrono::microseconds(10000));
+            continue;
+        }
+
         int currentIndex = 0;
         int samplesNeeded = FFT_SIZE;
 
         // Gather enough samples for FFT
         while (currentIndex < samplesNeeded && keeprunning) {
-            if (queue480.pop(sampleData)) {
-                for (int i = 0; i < sampleData.numSamples && currentIndex < samplesNeeded; ++i) {
-                    float iValue = static_cast<float>(sampleData.sdata[i].real());
-                    float qValue = static_cast<float>(sampleData.sdata[i].imag());
+            SDRQUEUE::View v;
+            if (SDRQUEUE::tryPop(1, v)) {
+                // samples kommen mit 2,4MS/s und müssen auf 480kS/s resampled werden
+                unsigned int ny480 = 0;
+                msresamp_crcf_execute(resamp_480k_,
+                              const_cast<liquid_float_complex*>(v.data), v.count,
+                              out480Buf_.data(), &ny480);
+                SDRQUEUE::consume(1);
+
+                for (int i = 0; i < (int)ny480 && currentIndex < samplesNeeded; ++i) {
+                    float iValue = static_cast<float>(out480Buf_[i].real());
+                    float qValue = static_cast<float>(out480Buf_[i].imag());
                     iqSamples[currentIndex] = complex<float>(iValue, qValue);
                     ++currentIndex;
                 }
+
+                
             } else {
-                // Sleep if no samples are available
-                std::this_thread::sleep_for(chrono::microseconds(1000));
+                std::this_thread::sleep_for(std::chrono::microseconds(50));
             }
         }
 

@@ -8,6 +8,7 @@
 #include <array>
 #include <iostream>
 #include "global.h"
+#include "NoiseReduction.h"
 
 class SignalDecoder {
 public:
@@ -29,6 +30,12 @@ public:
     // set SSB Filter
     void setFilter(float value);
 
+    // 0 disables NR. FM bypasses it while retaining the selected strength.
+    bool setNoiseReduction(float percent);
+    unsigned getNoiseReduction() const { return noiseReduction.percent(); }
+    unsigned getEffectiveNoiseReduction() const { return usblsb == 2 ? 0 : noiseReduction.percent(); }
+    void resetAudio();
+
     // read the current OpMode
     float getUsbLsb();
 
@@ -43,6 +50,9 @@ private:
     int usblsb = 0;
     int filter = 3600;
     std::vector<float> audioSamples;
+    NoiseReduction noiseReduction;
+    float gain = 1.0f; // AGC history belongs to this listener.
+
 
     // SSB Filter
     iirfilt_crcf ssb_filter_500 = nullptr;

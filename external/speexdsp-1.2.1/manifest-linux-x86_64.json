@@ -1,0 +1,25 @@
+{
+  "version": "1.2.1",
+  "upstream": "https://github.com/xiph/speexdsp",
+  "source_url": "https://downloads.xiph.org/releases/speex/speexdsp-1.2.1.tar.gz",
+  "source_sha256": "8c777343e4a6399569c72abc38a95b24db56882c83dbdb6c6424a5f4aeb54d3d",
+  "platform": "Linux x86_64",
+  "configure": [
+    "--disable-shared",
+    "--enable-static",
+    "--disable-examples",
+    "--disable-sse",
+    "--disable-neon",
+    "--with-fft=smallft",
+    "--with-pic"
+  ],
+  "CFLAGS": "-O2 -march=x86-64",
+  "compiler": "cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "sha256": {
+    "include/speex/speex_preprocess.h": "87066ed01639bbc8d3297bb58dbd55bfe1b9cd6e26fc68a1b7f87aa9b61fa9c3",
+    "include/speex/speexdsp_types.h": "4f97187c057fd8493c787f2526752859cf57007d50fef8d2e03c9b79b2fed490",
+    "include/speex/speexdsp_config_types.h": "adae4ec8c26f2ed0fcc9cb5d1bdc029b0e21fde99af6dbcbd430e729a48afa18",
+    "LICENSE": "2654a4264b2bfe298dedc508748d140111840c315cc8eb646a3a68c13fa75b01",
+    "lib/linux-x86_64/libspeexdsp.a": "068100580a4cafce72b50d8c74c289faf51985e4722f7d177c87fb64952359f6"
+  }
+}

@@ -3,14 +3,19 @@
 #include <iostream>
 #include <chrono>
 #include <vector>
+#include <array>
 #include <boost/lockfree/spsc_queue.hpp>
 #include "SDRHardware.h"
 #include "global.h"
 #include "FFTProcessor.h"
 #include "ClientManager.h"
+#include "ADSB.h"
+#include "SDRQUEUE.h"
 #include "sdrplay_api.h" // the SDRplay driver must be installed!
 
 using namespace std::chrono;
+
+std::array<liquid_float_complex, 2048> SDRHardware::rxarr{};
 
 // Constructor
 SDRHardware::SDRHardware() : numDevs(0), deviceParams(nullptr), chParams(nullptr), err(sdrplay_api_Success), chosenDevice(nullptr), TUNED_FREQUENCY(14240000), SDR_SAMPLE_RATE(2400000) {
@@ -19,17 +24,13 @@ SDRHardware::SDRHardware() : numDevs(0), deviceParams(nullptr), chParams(nullptr
 
 // Destructor (cleans up the API)
 SDRHardware::~SDRHardware() {
+    stop();
 /*    if (chosenDevice) {
         sdrplay_api_Uninit(chosenDevice->dev);
         sdrplay_api_ReleaseDevice(chosenDevice);
     }
     sdrplay_api_Close();*/
     std::cout << "SDRHardware object destroyed and SDRplay API closed.\n";
-
-    if(resampler_2400to480) {
-        msresamp_crcf_destroy(resampler_2400to480);
-        resampler_2400to480 = nullptr;
-    }
 }
 
 // Singleton implementation
@@ -42,15 +43,13 @@ SDRHardware& SDRHardware::getInstance() {
 bool SDRHardware::init() {
     printf("Initialize SDRplay hardware\n");
 
-    // Create the fractional resampler 2400 to 480 kS/s
-    resampler_2400to480 = msresamp_crcf_create(r_2400to480, As_2400to480);
-
     // Öffne die SDRplay API
     if ((err = sdrplay_api_Open()) != sdrplay_api_Success) {
         printf("sdrplay_api_Open failed: %s\n", sdrplay_api_GetErrorString(err));
         return false;
     }
 
+    apiOpen_ = true;
     printf("SDRplay API opened\n");
 
     // Geräte scannen
@@ -92,14 +91,14 @@ bool SDRHardware::init() {
     deviceParams->rxChannelA->tunerParams.gain.syncUpdate = 0;   // Default: no sync update needed
     deviceParams->rxChannelA->tunerParams.gain.minGr = sdrplay_api_NORMAL_MIN_GR; // Normal gain reduction
     chParams->tunerParams.rfFreq.rfHz = TUNED_FREQUENCY;
-    chParams->tunerParams.bwType = sdrplay_api_BW_0_600; // 600 kHz
+    chParams->tunerParams.bwType = sdrplay_api_BW_5_000; // für ADSB so breit
     deviceParams->rxChannelA->tunerParams.ifType = sdrplay_api_IF_Zero; // output is in baseband
-    deviceParams->devParams->fsFreq.fsHz = 2400000.0;  // sample rate 2.4 MS/s
+    deviceParams->devParams->fsFreq.fsHz = IN_RATE_HZ;  // sample rate 2.4 MS/s
     deviceParams->rxChannelA->ctrlParams.agc.enable = sdrplay_api_AGC_100HZ;
     deviceParams->rxChannelA->ctrlParams.agc.setPoint_dBfs = -30;
 
     // Callbacks einrichten
-    sdrplay_api_CallbackFnsT cbFns;
+    sdrplay_api_CallbackFnsT cbFns{};
     cbFns.StreamACbFn = StreamACallback;
     cbFns.EventCbFn = EventCallback;
 
@@ -109,7 +108,17 @@ bool SDRHardware::init() {
         return false;
     }
 
+    streaming_ = true;
     return true;
+}
+
+void SDRHardware::stop() {
+    if (streaming_) {
+        sdrplay_api_Uninit(chosenDevice->dev);
+        sdrplay_api_ReleaseDevice(chosenDevice);
+        streaming_ = false;
+    }
+    if (apiOpen_) { sdrplay_api_Close(); apiOpen_ = false; }
 }
 
 // Sets the band and updates the frequency
@@ -135,38 +144,44 @@ void SDRHardware::convertToLiquidDSPFormat(short *xi, short *xq, unsigned int nu
     }
 }
 
-void SDRHardware::StreamACallback(short *xi, short *xq, sdrplay_api_StreamCbParamsT *params, unsigned int numSamples, unsigned int reset, void *cbContext) {
+static inline unsigned int estimate_out_len(unsigned int inN, float r) {
+    // Liquid braucht etwas Headroom wegen Filter-Latenz; lieber etwas zu groß.
+    // 64 ist konservativ, kostet kaum was.
+    return static_cast<unsigned int>(std::ceil(inN * r)) + 64u;
+}
+
+void SDRHardware::StreamACallback(short *xi, short *xq, sdrplay_api_StreamCbParamsT *params,
+                                  unsigned int numSamples, unsigned int reset, void *cbContext)
+{
     if (reset) {
-        printf("StreamACallback: Reset detected, numSamples=%d\n", numSamples);
+        std::printf("StreamACallback: Reset detected, numSamples=%u\n", numSamples);
     }
 
-    SDRHardware& instance = SDRHardware::getInstance();
-
-    // Allocate an array for complex samples using unique_ptr
-    std::unique_ptr<liquid_float_complex[]> complexSamples(new liquid_float_complex[numSamples]);
-    instance.convertToLiquidDSPFormat(xi, xq, numSamples, complexSamples.get());   // Use .get() to access raw pointer
-
-    // Downsample to 480 kS/s
-    unsigned int num_samples_out_480 = static_cast<unsigned int>(480.0f / 2400.0f * numSamples + 0.5f);
-    std::unique_ptr<liquid_float_complex[]> samples_480(new liquid_float_complex[num_samples_out_480]);
-    unsigned int num_output_samples_480;
-
-    msresamp_crcf_execute(instance.resampler_2400to480, complexSamples.get(), numSamples, samples_480.get(), &num_output_samples_480);
-
-    // Convert sample array to a vector just before pushing to FFT process
-    SampleData datavect;
-    datavect.sdata = std::vector<liquid_float_complex>(samples_480.get(), samples_480.get() + num_output_samples_480);
-    datavect.numSamples = num_output_samples_480;
-
-    // Push samples to the FFT process
-    FFTProcessor& fftinstance = FFTProcessor::getInstance();
-    fftinstance.pushFFTinputSamples(datavect);
-
-    // Also send samples to the Client Manager
-    ClientManager& CMinstance = ClientManager::getInstance();
-    CMinstance.enqueueRawSamples(datavect);
-
-    // No need for delete[] here; std::unique_ptr will automatically release memory when it goes out of scope
+    auto& hardware = SDRHardware::getInstance();
+    if (params->rfChanged && hardware.capturePending_.load()) {
+        hardware.confirmedSegment_ = hardware.pendingSegment_.load();
+        hardware.capturePending_ = false;
+    }
+    const auto monoBefore = duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count();
+    const auto utc = duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
+    const auto monoAfter = duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count();
+    const auto event = reset ? SDRStreamChange::HardwareReset :
+        params->fsChanged ? SDRStreamChange::SampleRateChange :
+        params->rfChanged ? SDRStreamChange::FrequencyChange : SDRStreamChange::None;
+    const auto segment = hardware.capturePending_.load() ? 0 : hardware.confirmedSegment_;
+    const auto first = hardware.captureClock_.observe(params->firstSampleNum, numSamples,
+        utc, monoBefore + (monoAfter - monoBefore)/2, segment, event, monoAfter - monoBefore);
+    // Split unusually large callbacks safely; never truncate or overflow rxarr.
+    for (unsigned int offset = 0; offset < numSamples;) {
+        const auto count = std::min<unsigned int>(rxarr.size(), numSamples - offset);
+        hardware.convertToLiquidDSPFormat(xi + offset, xq + offset, count, rxarr.data());
+        auto info = first;
+        info.firstSample += offset;
+        info.utcNanoseconds += sdrSampleTime(offset, 2400000);
+        info.discontinuity = first.discontinuity && offset == 0;
+        SDRQUEUE::pushData(rxarr.data(), count, info);
+        offset += count;
+    }
 }
 
 // Event callback function (static member function)
@@ -186,13 +201,16 @@ float SDRHardware::getTuningFrequency() {
 }
 
 void SDRHardware::changeBand() {
-    if(!bandReady) return;
-    bandReady = false;
+    if (capturePending_.load() || !bandReady.exchange(false)) return;
+    const int selectedBand = static_cast<int>(band.load());
+    const auto previousStart = StartQRG, previousEnd = EndQRG;
+    const auto previousFrequency = TUNED_FREQUENCY;
+    const bool previousADSB = isADSB;
     
     uint32_t offset = 240000; // Offset in Hz (uint32_t)
     uint32_t freq = 0;            // Calculated frequency in Hz (uint32_t)
 
-    switch (static_cast<int>(band)) {
+    switch (selectedBand) {
         case 630:
             StartQRG = start_630m;
             EndQRG = end_630m;
@@ -273,17 +291,21 @@ void SDRHardware::changeBand() {
             StartQRG = start_2m_d;
             EndQRG = end_2m_d;  // USB for 2m
             break;
-        case 438:   // 438.8-439.3 MHz
-            StartQRG = start_70cm_a;
-            EndQRG = end_70cm_a; // USB for 70cm
-            break;
         case 70:
             StartQRG = start_70cm;
             EndQRG = end_70cm;  // USB for 70cm
             break;
+        case 438:   // 438.8-439.3 MHz 
+            StartQRG = start_70cm_a;
+            EndQRG = end_70cm_a; // USB for 70cm
+            break;
         case 446:
             StartQRG = start_PMR446;
             EndQRG = end_PMR446; 
+            break;
+        case 1090:
+            StartQRG = start_ADSB;
+            EndQRG = end_ADSB; 
             break;
         default:
             std::cout << "Unknown band" << std::endl;
@@ -295,17 +317,60 @@ void SDRHardware::changeBand() {
 
     freq = StartQRG + offset;
 
+    if(selectedBand == 1090) {
+        freq = 1090000000;  // Festfrequenz 
+        isADSB = true;
+    }
+    else {
+        isADSB = false;
+    }
+
     TUNED_FREQUENCY = freq;
     printf("set tuner to: %d\n",TUNED_FREQUENCY);
-    /*mir_sdr_ErrT ret = mir_sdr_SetRf((double)TUNED_FREQUENCY, 1, 0);
-    if(ret) printf("err; %d\n",ret);*/
 
     deviceParams->rxChannelA->tunerParams.rfFreq.rfHz = (double)TUNED_FREQUENCY;
 
+    if (freq == previousFrequency && StartQRG == previousStart && EndQRG == previousEnd) return;
+    pendingSegment_ = sdrSegment(StartQRG, EndQRG);
+    capturePending_ = true; // Callback confirms the new RF setting via rfChanged.
+
     // Call sdrplay_api_Update to apply the new frequency
     sdrplay_api_ErrT ret = sdrplay_api_Update(chosenDevice->dev, sdrplay_api_Tuner_A, sdrplay_api_Update_Tuner_Frf, sdrplay_api_Update_Ext1_None);
-
     if (ret != sdrplay_api_Success) {
         printf("Error: sdrplay_api_Update failed with code %d: %s\n", ret, sdrplay_api_GetErrorString(ret));
+        capturePending_ = false;
+        StartQRG = previousStart; EndQRG = previousEnd;
+        TUNED_FREQUENCY = previousFrequency; isADSB = previousADSB;
+        deviceParams->rxChannelA->tunerParams.rfFreq.rfHz = previousFrequency;
+        return;
+    }
+
+    // starte/stoppe ADSB Decoder
+    // --- ADSB / readsb lifecycle ---
+    if (selectedBand == 1090) {
+        if (!adsbRunning_) {
+            adsbRunning_ = true;
+
+            // FIFO + readsb starten
+            ADSB& a = ADSB::getInstance();
+
+            // FIFO Stream aktivieren (Gain wie bei dir bewährt, z.B. 10)
+            a.startIQStreamFIFO("/tmp/adsb_iq.fifo", 10.0f);
+
+            // readsb starten (Pfad ggf. anpassen)
+            a.startReadsb("./readsb", "/tmp/adsb_iq.fifo", 30047, 0.2f);
+
+            printf("ADSB: started readsb + FIFO stream\n");
+        }
+    } else {
+        if (adsbRunning_) {
+            adsbRunning_ = false;
+
+            ADSB& a = ADSB::getInstance();
+            a.stopReadsb();
+            a.stopIQStreamFIFO();
+
+            printf("ADSB: stopped readsb + FIFO stream\n");
+        }
     }
 }

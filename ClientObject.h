@@ -13,7 +13,7 @@
 class ClientObject {
 public:
     // Constructor that starts the client thread
-    ClientObject(int clientId, const std::string& clientIP);
+    ClientObject(int clientId, const std::string& clientIP, const std::string& callsign);
     
     // Destructor to clean up the thread
     ~ClientObject();
@@ -27,11 +27,8 @@ public:
     // Get the client's IP address
     std::string getClientIP() const;
 
-    // check the password
-    bool checkPW();
-
-    std::string username = "";
-    std::string password = "";
+    // Login names are read and updated only by the ClientManager thread.
+    std::string username;
 
 private:
     // The thread that does the processing for the client
@@ -45,7 +42,7 @@ private:
     void setMode(ClientInfo clientInfo);
     void setFilter(ClientInfo clientInfo);
     void decodeSamples(ClientInfo clientInfo);
-    void userPW(ClientInfo clientInfo);
+    void sendNoiseReductionState();
 
     // Flag to stop the thread
     int clientId;

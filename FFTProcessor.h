@@ -10,6 +10,7 @@
 #include <boost/lockfree/spsc_queue.hpp>
 #include "global.h"
 #include "liquid.h"
+#include "SDRHardware.h"
 
 // Constants
 const int SAMPLE_RATE = 480000;   // 480 kS/s
@@ -21,10 +22,6 @@ public:
     static FFTProcessor& getInstance();
     
     void startFFTThread();                  // Start the FFT thread
-    void pushFFTinputSamples(SampleData data);   // push received samples into the FFT input queue
-
-    // Read data from the FFT queue
-    bool readFFTQueue(std::array<float, 1025>& data);
 
 private:
     FFTProcessor();  // Private constructor for Singleton
@@ -51,12 +48,15 @@ private:
     fftwf_plan fftPlan;
     fftwf_complex* fftOut;
 
-    // Queue for samples from the SDRplay callback
-    // any number of samples, queue can store 1024 packets
-    boost::lockfree::spsc_queue<SampleData, boost::lockfree::capacity<1024>> queue480;
-
     // Helper variables
     std::chrono::steady_clock::time_point lastUpdateTime;
+
+    // resampler
+    msresamp_crcf resamp_480k_ = nullptr;
+    std::array<liquid_float_complex,2048> out480Buf_;
+    float OUT_480_HZ   = 480000.0f;
+    float R_480 = OUT_480_HZ / SDRHardware::getInstance().IN_RATE_HZ;   
+    float AS_dB = 60.0f; // Stopband attenuation (ok für vieles)
 };
 
 #endif // FFT_PROCESSOR_H

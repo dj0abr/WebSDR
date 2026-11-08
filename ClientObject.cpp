@@ -9,8 +9,8 @@
 using namespace std::chrono;
 
 // Constructor: Starts the thread for processing
-ClientObject::ClientObject(int clientId, const std::string& clientIP)
-    : clientId(clientId), keepRunning(true), clientIP(clientIP), clientObjectInputQueue() {
+ClientObject::ClientObject(int clientId, const std::string& clientIP, const std::string& callsign)
+    : username(callsign), clientId(clientId), keepRunning(true), clientIP(clientIP), clientObjectInputQueue() {
     clientThread = std::thread(&ClientObject::processClient, this);
 }
 
@@ -54,23 +54,31 @@ void ClientObject::processClient() {
             // 3 ... raw samples 480 kS/s
             switch (clientInfo.messageId) {
                 case 2: { // message from Browser
-                        int BrowserMessageID = static_cast<int>(std::round(clientInfo.message[0]));
+                        if (clientInfo.message.size() < 2 || !std::isfinite(clientInfo.message[0]) ||
+                            clientInfo.message[0] < 0 || clientInfo.message[0] > 5 ||
+                            clientInfo.message[0] != std::round(clientInfo.message[0])) break;
+                        int BrowserMessageID = static_cast<int>(clientInfo.message[0]);
                         // Message ID:
                         // 0 ... waterfall tuning frequency from the user
                         // 1 ... band selection
                         // 2 ... mode selection
                         // 3 ... ssb filter
-                        // 4 ... user login data
+                        // Login data is handled synchronously by ClientManager.
                         switch (BrowserMessageID) {
                             case 0: setFrequency(clientInfo);
                                     break;
                             case 1: setBand(clientInfo);
                                     break;
                             case 2: setMode(clientInfo);
+                                    sendNoiseReductionState();
                                     break;
                             case 3: setFilter(clientInfo);
                                     break;
-                            case 4: userPW(clientInfo);
+                            // Browser command 5: NR percent, -1 queries the state.
+                            // Always acknowledge, including rejected values.
+                            case 5: if (clientInfo.message[1] != -1)
+                                        signaldecoder.setNoiseReduction(clientInfo.message[1]);
+                                    sendNoiseReductionState();
                                     break;
                         }
                         break;
@@ -82,7 +90,7 @@ void ClientObject::processClient() {
             // send configuration data to the client browser
             SDRHardware& hardware = SDRHardware::getInstance();
 
-            ClientTXData configdata;
+            ClientTXData configdata{};
             configdata.clientId = clientId;
             configdata.data[0] = 2.0f;  // ID for configuration data
             configdata.data[1] = hardware.getTuningFrequency();
@@ -91,7 +99,6 @@ void ClientObject::processClient() {
             configdata.data[4] = StartQRG;
             configdata.data[5] = EndQRG;
             configdata.data[6] = ClientManager::getInstance().getNumberOfLoggedInClients();
-            configdata.authenticated = checkPW();
 
             bool hasChanged = false;
             if(freq != configdata.data[1]) hasChanged = true;
@@ -136,9 +143,12 @@ void ClientObject::setFrequency(ClientInfo clientInfo)
 
 void ClientObject::setBand(ClientInfo clientInfo)
 {
+    // Recheck when the queued command executes: another user may have logged in.
+    if (ClientManager::getInstance().getNumberOfLoggedInClients() != 1) return;
     float fband = static_cast<int>(std::round(clientInfo.message[1]));
     SDRHardware& hardware = SDRHardware::getInstance();
     hardware.setBand(fband);
+    signaldecoder.resetAudio();
 }
 
 void ClientObject::setMode(ClientInfo clientInfo)
@@ -153,34 +163,15 @@ void ClientObject::setFilter(ClientInfo clientInfo)
     signaldecoder.setFilter(ffilter);
 }
 
-void ClientObject::userPW(ClientInfo clientInfo) {
-    // Convert the float vector to a string
-    std::string combinedText;
-
-    // Start the loop from index 1, ignoring index 0
-    for (size_t i = 1; i < clientInfo.message.size(); ++i) {
-        // Convert each float to a char (byte) by rounding and casting
-        char byte = static_cast<char>(std::round(clientInfo.message[i]));
-        combinedText += byte;
-    }
-
-    // Split the combinedText string into username and password
-    size_t separatorPos = combinedText.find(':'); // Assuming ':' was used as a delimiter
-    if (separatorPos == std::string::npos) {
-        throw std::runtime_error("Delimiter not found in received data");
-    }
-
-    // Extract username and password
-    username = combinedText.substr(0, separatorPos);
-    password = combinedText.substr(separatorPos + 1);
-}
-
-bool ClientObject::checkPW() {
-    bool auth = true;
-    if(password != username) auth = false;
-    if(username.length() < 3) auth = false;
-    //printf("%d %s %s\n",auth?1:0,username.c_str(),password.c_str())    ;
-    return auth;
+void ClientObject::sendNoiseReductionState()
+{
+    ClientTXData state{};
+    state.clientId = clientId;
+    state.data[0] = 8; // NR state: version, configured percent, effective percent.
+    state.data[1] = 1;
+    state.data[2] = signaldecoder.getNoiseReduction();
+    state.data[3] = signaldecoder.getEffectiveNoiseReduction();
+    WebSocketServer::getInstance().sendDataToClient(state);
 }
 
 // process raw samples coming at a speed of 480 kS/s
@@ -198,7 +189,6 @@ void ClientObject::decodeSamples(ClientInfo clientInfo)
             ClientTXData txdata;
             std::copy(audiosamples.begin(), audiosamples.end(), txdata.data.begin());
             txdata.clientId = clientId;
-            txdata.authenticated = checkPW();
 
             WebSocketServer& WSSinstance = WebSocketServer::getInstance();
             WSSinstance.sendDataToClient(txdata);
@@ -211,9 +201,5 @@ void ClientObject::decodeSamples(ClientInfo clientInfo)
     // send the samples to the narrow band FFT
     samples_baseband_48.clientId = clientId;
     samples_baseband_48.messageId = 3;
-    if(!checkPW()) {
-        // not authenticated, clear data
-        samples_baseband_48.sdata.clear();
-    }
     narrowFFT.pushSampleData(samples_baseband_48);
 }

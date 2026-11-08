@@ -6,47 +6,106 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>kwWebRX</title>
     <style>
-        /* Style to ensure canvas scales to 100% width of the device */
-        body, html {
+        html, body {
             margin: 0;
             padding: 0;
+            width: 100%;
             height: 100%;
-            display: flex;
-            flex-direction: column; /* Ensure elements are stacked vertically */
-            justify-content: flex-start; /* Align items at the top */
-            align-items: center;
             background-color: #f0f0f0;
         }
-
-        /* The container that wraps both canvases */
+        body {
+            height: 100vh;
+            height: 100dvh;
+            display: grid;
+            grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) auto;
+            overflow: hidden;
+        }
         .canvas-container {
-            position: relative;    /* Create a positioning context for the canvases */
-            width: 100%;           /* Ensure container takes 100% of available width */
-            max-width: 100%;       /* Prevent overflow */
+            position: relative;
+            min-width: 0;
+            min-height: 0;
+            overflow: hidden;
+            background: black;
         }
-
         #myCanvas {
-            display: block;        /* Ensures there's no extra space around the canvas */
-            width: 100%;           /* Scale canvas to 100% width of the screen */
-            height: auto;          /* Maintain the aspect ratio */
+            display: block;
+            width: 100%;
+            height: 100%;
+            touch-action: none;
         }
-
         #overlayCanvas {
-            position: absolute;    /* Position it on top of #myCanvas */
+            position: absolute;
             top: 0;
             left: 0;
-            width: 100%;           /* Match the width of #myCanvas */
-            height: 100%;          /* Ensure the height also matches #myCanvas */
-            pointer-events: none;  /* Ensure the overlay doesn't block interactions with the canvas below */
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
         }
-
         .guicontainer {
             display: flex;
-            align-items: center; /* Aligns items vertically in the center */
-            gap: 15px; /* Adds space between the elements */
-            font-family: Arial, Helvetica, sans-serif; /* Non-serif fonts */
-            font-weight: bold; /* Bold text */
-            font-size: 22px; /* Optional: set font size */
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 4px 10px;
+            padding: 4px;
+            min-width: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            font-weight: bold;
+            font-size: 22px;
+        }
+        .ft8-panel {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            min-height: 0;
+            overflow: hidden;
+            border-top: 1px solid #c8cdd2;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+        .ft8-heading {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 4px 10px;
+            padding: 6px 8px;
+            background: #f2f4f6;
+            border-bottom: 1px solid #c8cdd2;
+        }
+        .ft8-heading h2 { display: inline; margin: 0; font-size: 16px; }
+        #ft8Status { margin-left: 8px; font-size: 12px; color: #44515b; }
+        #ft8Count { font-size: 11px; color: #626d75; white-space: nowrap; }
+        .ft8-scroll {
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+            overscroll-behavior: contain;
+            background: white;
+        }
+        #ft8Table { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.15; }
+        #ft8Table th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: white;
+            color: #444;
+            font-family: Arial, sans-serif;
+        }
+        #ft8Table th, #ft8Table td { padding: 1px 4px; text-align: right; }
+        #ft8Table th:last-child, #ft8Table td:last-child { text-align: left; }
+        #ft8Table td { font-family: Consolas, monospace; white-space: nowrap; }
+        #ft8Table td:last-child { white-space: normal; overflow-wrap: anywhere; }
+        #ft8Table .ft8-country { text-align: left; font-family: Arial, sans-serif; white-space: normal; overflow-wrap: anywhere; max-width: 120px; }
+        #ft8Table tr.ft8-slot-even { background: #f1f6fa; }
+        #ft8Empty { padding: 14px 8px; font-size: 12px; color: #626d75; }
+        @media (max-width: 600px) {
+            .guicontainer { font-size: 16px; gap: 4px 6px; }
+            #ft8Table { font-size: 11px; }
+            #ft8Table th, #ft8Table td { padding: 1px 3px; }
+            .guicontainer #bandBox { width: 100px; }
+            .guicontainer #modeBox { width: 62px; }
+            .guicontainer .login-input { width: 90px; margin-left: 0; }
         }
 
         #bandBox, #modeBox {
@@ -74,20 +133,39 @@
         .login-input:invalid {
             background-color: red;
         }
+        .nr-controls { flex-basis: 100%; justify-content: center; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+            font: 14px Arial, sans-serif; padding: 8px 0; }
+        .nr-controls label { white-space: nowrap; }
+        .nr-controls input[type="range"] { width: 120px; margin: 0; }
+        .nr-controls output { min-width: 34px; }
+        #nrStatus { font-size: 12px; color: #44515b; }
     </style>
 </head>
 <body>
 
-<div>
+<div class="canvas-container">
     <canvas id="myCanvas" tabindex="0"></canvas>
     <canvas id="overlayCanvas" tabindex="1"></canvas>
 </div>
+    <section class="ft8-panel" aria-labelledby="ft8Title">
+        <div class="ft8-heading">
+            <div><h2 id="ft8Title" style="display:inline;">FT8</h2><span id="ft8Status">Verbinde …</span></div>
+            <span id="ft8Count">0 Meldungen</span>
+        </div>
+        <div class="ft8-scroll" id="ft8Scroll" tabindex="0" aria-label="FT8-Meldungen">
+            <table id="ft8Table">
+                <thead><tr><th scope="col">UTC</th><th scope="col">MHz</th><th scope="col">dB</th><th scope="col">DT</th><th scope="col" class="ft8-country" title="Land der sendenden Station">Land</th><th scope="col">Nachricht</th></tr></thead>
+                <tbody id="ft8Rows"></tbody>
+            </table>
+            <div id="ft8Empty">Warte auf einen vollständigen FT8-Slot …</div>
+        </div>
+    </section>
 <div class="guicontainer">
     <label class="audiolabel" for="audioCheckbox">Audio</label>
     <input type="checkbox" id="audioCheckbox">
 
     <label class="bandlabel" for="bandBox">Band:</label>
-    <select id="bandBox" onchange="updateBand()">
+    <select id="bandBox" disabled onchange="updateBand()">
         <option value="630">630m</option>
         <option value="160">160m</option>
         <option value="80">80m</option>
@@ -119,24 +197,37 @@
         <option value="2">FM</option>
     </select>
 
-    <input type="text" class="login-input" name="username" style="text-transform: uppercase;" id="username" placeholder="Rufzeichen" required  required minlength="3">
+    <input type="text" class="login-input" name="username" style="text-transform: uppercase;" id="username" placeholder="Rufzeichen" required minlength="3" maxlength="32" title="3–32 Zeichen: Buchstaben, Ziffern und /">
+<div class="nr-controls" role="group" aria-label="Rauschunterdrückung">
+    <label title="Rauschunterdrückung für USB/LSB-Sprechfunk; bei FM pausiert">
+        <input type="checkbox" id="nrEnabled" disabled> NR</label>
+    <label for="nrStrength">Stärke:</label>
+    <input type="range" id="nrStrength" min="1" max="100" step="1" value="60" disabled>
+    <output id="nrStrengthValue" for="nrStrength">60 %</output>
+    <span id="nrStatus" role="status" aria-live="polite">Nicht verbunden</span>
+</div>
 </div>
 
+<script src="ft8-country-data.js"></script>
+<script src="ft8-countries.js"></script>
+<script src="noise-reduction.js"></script>
 <script>
 
     let fftData = new Float32Array(1024);  // Initialize with dummy values
     let socket;
+    let reconnectTimer = null;
     let reconnectInterval = 2000;  // Reconnect every 2 seconds
     let firstDraw = true;  // Flag to check if this is the first draw
     let newDataAvailable = false;
     let runAudio = 0;
     let audioQueue = [];
-    let GUIspace = 40;  // free space for GUI elements below the waterfall
+    let GUIspace = 40;  // Space reserved for the frequency label in the overlay
     let bandchanged = -1;
     let usblsb = 1;
     let bigFFTstartQRG = 14000000;
     let bigFFTendQRG = 14350000;
     let freqOffset = 0;
+    let displayedFrequency = "";
 
     const canvas = document.getElementById('myCanvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -145,14 +236,17 @@
     const overlayCtx = overlayCanvas.getContext('2d');
 
     function resizeCanvas() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight - GUIspace;
+        const bounds = canvas.parentElement.getBoundingClientRect();
+        canvas.width = Math.max(1, Math.round(bounds.width));
+        canvas.height = Math.max(1, Math.round(bounds.height));
         overlayCanvas.width = canvas.width;
         overlayCanvas.height = canvas.height;
         firstDraw = true;
+        drawTuningLine();
     }
 
     function displayFrequency(freq) {
+        displayedFrequency = freq;
         const overlayCanvas = document.getElementById("overlayCanvas");
         const ctx = overlayCanvas.getContext("2d");
 
@@ -162,7 +256,7 @@
 
         // Calculate position and dimensions for the frequency display
         const x = overlayCanvas.width / 2;
-        const y = overlayCanvas.height - 60; // Positioned close to the bottom
+        const y = Math.max(20, overlayCanvas.height - 30); // Keep the label inside the shorter waterfall
         const padding = 10; // Padding around the text
         const textWidth = ctx.measureText(freq).width;
         const rectWidth = textWidth + padding * 2;
@@ -307,6 +401,7 @@
         overlayCtx.fillRect(rectX, 0, rectWidth, rectHeight);
 
         overlayCtx.globalAlpha = 1.0;
+        if (displayedFrequency) displayFrequency(displayedFrequency);
     }
 
 
@@ -387,8 +482,85 @@
         usblsb = configData[2];
         document.getElementById('modeBox').value = usblsb;
 
+        document.getElementById("bandBox").disabled =
+            configData[5] !== 1 || !isValidCallsign(getCallsign());
         drawTuningLine();
         printQRG(configData);
+    }
+
+    // FT8 uses independent, newline-terminated records in type-7 binary frames.
+    // Keep a bounded local view; new connections receive future decodes only.
+    const FT8_MAX_ROWS = 500;
+    let ft8DialHz = null;
+
+    function setFT8Status(dialHz) {
+        ft8DialHz = dialHz;
+        document.getElementById("ft8Status").textContent = dialHz ?
+            `${(dialHz / 1e6).toFixed(6)} MHz · USB` : "In diesem Bandsegment kein FT8";
+        document.getElementById("ft8Empty").textContent = dialHz ?
+            "Warte auf einen vollständigen FT8-Slot …" : "Hier ist keine FT8-Empfangsfrequenz eingestellt.";
+    }
+
+    function processFT8Frame(values) {
+        let text = "";
+        for (const value of values) {
+            if (value === 0) break;
+            if (!Number.isInteger(value) || value < 0 || value > 255) return;
+            text += String.fromCharCode(value);
+        }
+        const tbody = document.getElementById("ft8Rows");
+        const scroll = document.getElementById("ft8Scroll");
+        const follow = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 24;
+        const fragment = document.createDocumentFragment();
+        let added = 0;
+        for (const record of text.split("\n")) {
+            if (!record) continue;
+            const fields = record.split("\t");
+            if (fields[0] === "S" && fields.length === 2) {
+                const dial = Number(fields[1]);
+                if (Number.isInteger(dial) && dial >= 0 && dial <= 0xffffffff) setFT8Status(dial);
+                continue;
+            }
+            if (fields[0] !== "D" || fields.length !== 4) continue;
+            const utc = Number(fields[1]), dial = Number(fields[2]);
+            if (!Number.isSafeInteger(utc) || utc < 0 || utc % 15 !== 0 ||
+                !Number.isInteger(dial) || dial <= 0 || dial > 0xffffffff) continue;
+            const parsed = fields[3].match(/^(\d{6})\s+([+-]?\d+)\s+([+-]?\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s+~\s?(.*)$/);
+            if (!parsed) continue;
+            const date = new Date(utc * 1000);
+            if (!Number.isFinite(date.valueOf())) continue;
+            const time = date.toISOString().slice(11, 19);
+            if (time.replaceAll(":", "") !== parsed[1]) continue;
+            const row = document.createElement("tr");
+            if (Math.floor(utc / 15) % 2 === 0) row.className = "ft8-slot-even";
+            const signalHz = dial + Number(parsed[4]); // USB dial frequency + audio offset.
+            const sender = globalThis.FT8Countries?.senderCallsign(parsed[5]) || "";
+            const country = globalThis.FT8Countries?.countryForCallsign(sender) || "—";
+            const cells = [time, (signalHz / 1e6).toFixed(7), parsed[2],
+                Number(parsed[3]).toFixed(2), country, parsed[5]];
+            for (const [column, value] of cells.entries()) {
+                const cell = document.createElement("td");
+                cell.textContent = value; // FT8 text, including <...>, is never HTML.
+                if (column === 4) {
+                    cell.className = "ft8-country";
+                    cell.title = sender ? `Rufzeichen: ${sender}` : "Senderrufzeichen nicht bekannt";
+                }
+                row.appendChild(cell);
+            }
+            fragment.appendChild(row);
+            ++added;
+        }
+        if (!added) return;
+        document.getElementById("ft8Empty").hidden = true;
+        tbody.appendChild(fragment);
+        let removedHeight = 0;
+        while (tbody.rows.length > FT8_MAX_ROWS) {
+            removedHeight += tbody.rows[0].getBoundingClientRect().height;
+            tbody.deleteRow(0);
+        }
+        document.getElementById("ft8Count").textContent = `${tbody.rows.length} Meldungen`;
+        if (follow) scroll.scrollTop = scroll.scrollHeight;
+        else if (removedHeight) scroll.scrollTop = Math.max(0, scroll.scrollTop - removedHeight);
     }
 
     let authentication = true;
@@ -396,8 +568,18 @@
     // Function to handle new FFT data received over WebSocket
     function updateFFT(data) {
         if (data.byteLength === 4100 || data.byteLength === 1028) {
-            let dataView = new DataView(event.data); // Create a DataView from the ArrayBuffer
+            let dataView = new DataView(data); // Create a DataView from the ArrayBuffer
             let idvalue = dataView.getFloat32(0, true);
+            if (idvalue === 8) {
+                if (data.byteLength === 4100)
+                    globalThis.NoiseReductionControl?.handleState(new Float32Array(data));
+                return;
+            }
+            if (idvalue === 7) {
+                if (data.byteLength !== 4100) return;
+                processFT8Frame(new Float32Array(data, 4, 1024));
+                return;
+            }
 
             if(idvalue < 0.5 && idvalue > -0.5) {
                 // 480kHz waterfall on top
@@ -431,41 +613,106 @@
         }
     }
 
-    function setupWebSocket() {
-        // Aktuelle Domain ohne Subdomain extrahieren
+    function getCallsign() {
+        return document.getElementById("username").value.trim().toUpperCase();
+    }
+
+    function isValidCallsign(callsign) {
+        return /^[A-Z0-9/]{3,32}$/.test(callsign) && /[A-Z]/.test(callsign);
+    }
+
+    function syncLogin() {
+        if (!isValidCallsign(getCallsign())) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+            document.getElementById("bandBox").disabled = true;
+            document.getElementById("ft8Status").textContent = "Bitte Rufzeichen eingeben";
+            ft8DialHz = null;
+            audioQueue = [];
+            globalThis.NoiseReductionControl?.disconnect();
+            if (socket) {
+                const closing = socket;
+                socket = null;
+                closing.onopen = closing.onmessage = closing.onclose = null;
+                closing.close();
+            }
+            return;
+        }
+        setupWebSocket();
+        sendUserPW();
+    }
+
+    function setupWebSocket()
+    {
+        if (!isValidCallsign(getCallsign()) ||
+            (socket && socket.readyState !== WebSocket.CLOSED)) return;
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
         const fullHostname = window.location.hostname;
-        
-        // Extrahiert die Hauptdomain
-        const domainParts = fullHostname.split('.');
-        const mainDomain = domainParts.slice(-2).join('.');  // Die letzten zwei Teile, z.B. "dj0abr.de"
+        let socketUrl;
 
-        // WebSocket-URL basierend auf der Hauptdomain erstellen
-        const socketUrl = `wss://ws.${mainDomain}`;
+        if (fullHostname === "localhost" || fullHostname === "127.0.0.1" ||
+            /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(fullHostname)) {
+            socketUrl = `ws://${fullHostname}:9001`;
+        } else {
+            // Preserve the deployed gateway: sdr.db0sl.de -> wss://ws.db0sl.de.
+            // Its existing proxy accepts the root path, rather than /ws on the GUI host.
+            const multiPartTLDs = ['co.uk', 'edu.au', 'gov.uk', 'ac.uk', 'org.au', 'com.au'];
+            const domainParts = fullHostname.split('.');
+            let mainDomain;
+            for (const tld of multiPartTLDs) {
+                if (fullHostname.endsWith('.' + tld)) {
+                    mainDomain = domainParts.slice(-(tld.split('.').length + 1)).join('.');
+                    break;
+                }
+            }
+            if (!mainDomain) mainDomain = domainParts.slice(-2).join('.');
+            socketUrl = fullHostname === mainDomain ? `wss://${mainDomain}` : `wss://ws.${mainDomain}`;
+        }
 
-        socket = new WebSocket(socketUrl);
+        console.log("WebSocket URL:", socketUrl);
 
-        socket.binaryType = 'arraybuffer';  // Expect binary data
+        const connection = new WebSocket(socketUrl);
+        socket = connection;
+        socket.binaryType = "arraybuffer";
 
-        socket.onopen = () => {
-            console.log('WebSocket connected!');
+        socket.onopen = () =>
+        {
+            if (socket !== connection) return;
+            sendUserPW();
+            globalThis.NoiseReductionControl?.connect(connection);
+            console.log("WebSocket connected!");
+            document.getElementById("ft8Status").textContent = "Warte auf Empfänger …";
         };
 
-        socket.onmessage = (event) => {
-            updateFFT(event.data);  // When data is received, update and redraw
+        socket.onmessage = (event) =>
+        {
+            if (socket === connection) updateFFT(event.data);
         };
 
-        socket.onerror = (error) => {
-            console.error('WebSocket error:', error);
+        socket.onerror = (error) =>
+        {
+            console.error("WebSocket error:", error);
         };
 
-        socket.onclose = () => {
-            console.log('WebSocket disconnected. Attempting to reconnect...');
+        socket.onclose = () =>
+        {
+            if (socket !== connection) return;
+            socket = null;
+            globalThis.NoiseReductionControl?.disconnect();
+            document.getElementById("bandBox").disabled = true;
+            console.log("WebSocket disconnected. Attempting to reconnect...");
+            ft8DialHz = null;
+            document.getElementById("ft8Status").textContent = "Verbindung unterbrochen";
             retryConnection();
         };
     }
 
     function retryConnection() {
-        setTimeout(() => {
+        if (!isValidCallsign(getCallsign())) return;
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
             console.log(`Reconnecting... `);
             setupWebSocket();  // Re-attempt connection
         }, reconnectInterval);
@@ -473,7 +720,7 @@
 
     function sendBandToServer(index) {
         localStorage.setItem("bandBox",bandBox.value);
-        if (socket.readyState === WebSocket.OPEN) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
             let data = new Float32Array(2);
             data[0] = 1;  // ID = 1 (indicating a band selection)
             data[1] = index;
@@ -483,7 +730,7 @@
     }
 
     function sendModeToServer(index) {
-        if (socket.readyState === WebSocket.OPEN) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
             let data = new Float32Array(2);
             data[0] = 2;  // ID = 2 (indicating a mode selection)
             data[1] = index;
@@ -494,7 +741,7 @@
     // Send the FFT index to the server
     function sendFreqOffsetToServer(FreqOffset) {
         //console.log("FreqOffset:",FreqOffset);
-        if (socket.readyState === WebSocket.OPEN) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
             let data = new Float32Array(2);
             data[0] = 0;  // ID = 0 (indicating a waterfall offset frequency)
             data[1] = FreqOffset;
@@ -523,21 +770,13 @@
     }
 
     function sendUserPW() {
-        if (socket.readyState === WebSocket.OPEN) {
-            const username = document.getElementById("username").value;
-            let password = username;//document.getElementById("password").value;
-            const combinedText = username + ":" + password; // Using ":" as a separator for clarity
-
-            // Convert combined text to Float32Array
-            const encoder = new TextEncoder();
-            const bytes = encoder.encode(combinedText);
-            const floatArray = new Float32Array(bytes.length+1);
-
-            floatArray[0] = 4;  // ID for user and PW
-            for (let i = 0; i < bytes.length; i++) {
-                floatArray[i+1] = bytes[i];
-            }
-
+        const callsign = getCallsign();
+        if (socket && socket.readyState === WebSocket.OPEN && isValidCallsign(callsign)) {
+            // Retain the existing protocol; no separate password is required.
+            const bytes = new TextEncoder().encode(callsign + ":" + callsign);
+            const floatArray = new Float32Array(bytes.length + 1);
+            floatArray[0] = 4;
+            for (let i = 0; i < bytes.length; i++) floatArray[i + 1] = bytes[i];
             socket.send(floatArray.buffer);
         }
     }
@@ -621,8 +860,9 @@
         }
 
         const touch = event.changedTouches[0];
-        let mouseX = touch.clientX;
-        let mouseY = touch.clientY;
+        const bounds = canvas.getBoundingClientRect();
+        let mouseX = touch.clientX - bounds.left;
+        let mouseY = touch.clientY - bounds.top;
 
         // Check if the mouse is within the canvas
         if (mouseX >= 0 && mouseX < canvas.width && mouseY >= 0 && mouseY < canvas.height) {
@@ -690,6 +930,8 @@
     // tuning by cursor keys
     function handleKeyPress(event)
     {
+        // Arrow keys in the FT8 list and controls must not tune the receiver.
+        if (event.target !== canvas && event.target !== document.body) return;
         if (event.key === 'ArrowLeft') {
             let increment = -0.05;
             if (event.shiftKey) increment = -50;
@@ -708,14 +950,14 @@
         drawTuningLine();
     }
 
-    // Call setupWebSocket initially to establish the connection
-    setupWebSocket();
-
     // Initial resize and setup
     resizeCanvas();
 
     // Reapply resizing when the window is resized
     window.addEventListener('resize', resizeCanvas);
+    if (window.ResizeObserver) {
+        new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
+    }
 
     // handle audio on/off clicks
     document.getElementById('audioCheckbox').addEventListener('change', (event) => {
@@ -746,8 +988,7 @@
     window.addEventListener('keydown', handleKeyPress);
 
     canvas.addEventListener('click', () => {
-        const username = document.getElementById("username").value;
-        username.blur();
+        document.getElementById("username").blur();
     });
 
     function detectMobileDevice() {
@@ -768,29 +1009,15 @@
     setInterval(sendUserPW, 1000);
 
     function saveToLocalStorage() {
-        const username = document.getElementById("username").value;
-        let password = username;//document.getElementById("password").value;
-
-        // use these two line as long as the password is not in use
-        //password = username;
-        //document.getElementById("password").value = password;
-        
-        // Save values to local storage
-        localStorage.setItem("username", username);
-        //localStorage.setItem("password", password);
+        const callsign = getCallsign();
+        localStorage.setItem("username", callsign);
+        syncLogin();
     }
 
-    // Add event listeners to call saveToLocalStorage on input
     document.getElementById("username").addEventListener("input", saveToLocalStorage);
-    //document.getElementById("password").addEventListener("input", saveToLocalStorage);
-
-    // Load stored values into the input fields on page load
     window.addEventListener("load", function() {
-        const savedUsername = localStorage.getItem("username") || "";
-        //const savedPassword = localStorage.getItem("password") || "";
-        
-        document.getElementById("username").value = savedUsername;
-        //document.getElementById("password").value = savedPassword;
+        document.getElementById("username").value = localStorage.getItem("username") || "";
+        saveToLocalStorage();
     });
 
     window.onload = function () {

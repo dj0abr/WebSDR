@@ -5,15 +5,19 @@
 #include <boost/lockfree/spsc_queue.hpp> // Needed for the lock-free queue
 #include "sdrplay_api.h"      // Needed for the API types in the class declaration
 #include "liquid.h"
+#include "SDRStreamInfo.h"
 
 
 class SDRHardware {
 public:
     static SDRHardware& getInstance();
     bool init();
+    void stop();
     void setBand(float band);   // set band value from another thread
     void changeBand();          // reads the new band and sets the tuner
     float getTuningFrequency(); // reads the tuner frequency
+
+    static constexpr float IN_RATE_HZ   = 2400000.0f;   // Hardware Sample Rate 2.4MS/s
 
 private:
     SDRHardware();
@@ -31,13 +35,18 @@ private:
     sdrplay_api_DeviceT *chosenDevice;
     uint32_t TUNED_FREQUENCY;
     const uint32_t SDR_SAMPLE_RATE;
-    float band;
+    std::atomic<float> band{20};
+    std::atomic<std::uint64_t> pendingSegment_{0};
+    std::atomic<bool> capturePending_{false};
+    std::uint64_t confirmedSegment_ = sdrSegment(14000000, 14350000);
+    SDRCaptureClock captureClock_;
+    bool streaming_ = false;
+    bool apiOpen_ = false;
     std::atomic<bool> bandReady = false;
 
-    // resampler 2400 kS/s to 480 kS/s
-    msresamp_crcf resampler_2400to480 = nullptr;
-    float r_2400to480 = 480.0f / 2400.0f;   // Resampling ratio: 480 kS/s / 2400 kS/s = 0.2
-    float As_2400to480 = 60.0f;             // Stop-band attenuation in dB (60 dB is a good choice)
+    static std::array<liquid_float_complex,2048> rxarr;
+
+    std::atomic<bool> adsbRunning_{false};
 };
 
 #endif // SDR_HARDWARE_H

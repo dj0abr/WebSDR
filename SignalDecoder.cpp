@@ -94,16 +94,32 @@ void SignalDecoder::setupSignalDecoder() {
 
     // prepare the audio buffer
     audioSamples.clear();
-    audioSamples.insert(audioSamples.begin(), 3.0f);    // 3.0f is the ID for audio samples
+    // The type-3 marker belongs only in the transport header, never in audio.
 }
 
 void SignalDecoder::setMode(float value) {
-    usblsb = static_cast<int>(std::round(value));
+    if (!std::isfinite(value) || value < 0 || value > 2 || value != std::round(value)) return;
+    const int next = static_cast<int>(value);
+    if (next == usblsb) return;
+    usblsb = next;
+    resetAudio();
 }
 
 void SignalDecoder::setFilter(float value) {
     filter = static_cast<int>(std::round(value));
     //printf("Filter: %d\n",filter);
+}
+
+bool SignalDecoder::setNoiseReduction(float percent) {
+    if (!std::isfinite(percent) || percent < 0 || percent > 100 || percent != std::round(percent)) return false;
+    noiseReduction.set(static_cast<unsigned>(percent));
+    return true;
+}
+
+void SignalDecoder::resetAudio() {
+    noiseReduction.reset();
+    audioSamples.clear();
+    gain = 1.0f;
 }
 
 float SignalDecoder::getUsbLsb() {
@@ -112,6 +128,7 @@ float SignalDecoder::getUsbLsb() {
 
 // Decode the SSB signal
 std::vector<float> SignalDecoder::demodulate(ClientInfo &data) {
+    if (data.sdata.empty()) return {};
     liquid_float_complex *samples_48 = data.sdata.data();
     unsigned int len48 = data.sdata.size();
 
@@ -148,11 +165,10 @@ std::vector<float> SignalDecoder::demodulate(ClientInfo &data) {
     }
 
     // ===== AGC ======
-    static float targetLevel = 0.3f;     // Desired signal level
-    static float maxGain = 1000.0f;        // Maximum allowed gain
-    static float attack = 1.0f;          // How quickly to reduce gain (faster for loud sounds)
-    static float decay = 0.01f;          // How quickly to restore gain (slower for quiet sounds)
-    static float gain = 1.0f;            // Initial gain
+    constexpr float targetLevel = 0.3f;     // Desired signal level
+    constexpr float maxGain = 1000.0f;        // Maximum allowed gain
+    constexpr float attack = 1.0f;          // How quickly to reduce gain (faster for loud sounds)
+    constexpr float decay = 0.01f;          // How quickly to restore gain (slower for quiet sounds)
 
     for (unsigned int i = 0; i < len48; i++) {
         float absSample = fabs(usb_audio[i] * gain);
@@ -178,13 +194,13 @@ std::vector<float> SignalDecoder::demodulate(ClientInfo &data) {
     // =======================
 
     // downsample from 48 to 8kS/s 
-    unsigned int num_samples_out_8_expected = (unsigned int)(r_48to8 * len48 + 0.5f);
-    float samples_8[num_samples_out_8_expected];
+    // Follow liquid-dsp's documented conservative output-buffer bound.
+    std::vector<float> samples_8(static_cast<std::size_t>(std::ceil(1 + 2 * r_48to8 * len48)));
     unsigned int num_output_samples_8;
-    msresamp_rrrf_execute(resampler_48to8_audio, usb_audio, len48, samples_8, &num_output_samples_8);
+    msresamp_rrrf_execute(resampler_48to8_audio, usb_audio, len48, samples_8.data(), &num_output_samples_8);
 
-    // add the new samples to the buffer
-    audioSamples.insert(audioSamples.end(), samples_8, samples_8 + num_output_samples_8);
+    // Speex frames are independent of the unchanged 1024-sample wire packets.
+    noiseReduction.process(samples_8.data(), num_output_samples_8, audioSamples, usblsb != 2);
 
     if (audioSamples.size() < 1024) {
         return std::vector<float>();

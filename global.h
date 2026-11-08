@@ -3,6 +3,8 @@
 
 #include <vector>
 #include <string>
+#include <array>
+#include <atomic>
 #include "liquid.h"
 
 // structure to hold raw samples
@@ -26,7 +28,7 @@ struct ClientTXData {
     std::array<float, 1025> data;
 };
 
-// Start frequencies (in Hz) for each ham radio band
+// Start frequencies (in Hz) for each ham radio band 
 const uint32_t start_630m = 400000;    // 472 kHz
 const uint32_t start_160m = 1800000;   // 1.8 MHz
 const uint32_t start_80m = 3500000;    // 3.5 MHz
@@ -47,9 +49,10 @@ const uint32_t start_2m_a = 144000000;   // 144 MHz
 const uint32_t start_2m_b = 144500000;   // 144 MHz
 const uint32_t start_2m_c = 145000000;   // 144 MHz
 const uint32_t start_2m_d = 145500000;   // 144 MHz
-const uint32_t start_70cm = 433500000; // 430 MHz
+const uint32_t start_70cm = 431200000; // 430 MHz
 const uint32_t start_70cm_a = 438800000;
 const uint32_t start_PMR446 = 446000000;
+const uint32_t start_ADSB  = 1089900000;
 
 const uint32_t end_630m = 500000;     // 479 kHz (breit genug machen, sonst Probleme mit der fft)
 const uint32_t end_160m = 2000000;    // 2.0 MHz
@@ -71,14 +74,16 @@ const uint32_t end_2m_a = 144500000;   // 144 MHz
 const uint32_t end_2m_b = 145000000;   // 144 MHz
 const uint32_t end_2m_c = 145500000;   // 144 MHz
 const uint32_t end_2m_d = 146000000;   // 144 MHz
-const uint32_t end_70cm = 434000000; // 430 MHz
+const uint32_t end_70cm = 431700000; // 430 MHz
 const uint32_t end_70cm_a = 439300000;
 const uint32_t end_PMR446 = 446200000;
+const uint32_t end_ADSB  = 1090100000;
 
 // curently used frequencies
 extern uint32_t StartQRG;
 extern uint32_t EndQRG;
-extern bool keeprunning;
+extern std::atomic<bool> keeprunning;
+extern std::atomic<bool> isADSB;
 extern const long unsigned int max_users;
 
 #endif // GLOBALS_H

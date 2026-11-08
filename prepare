@@ -1,7 +1,7 @@
 sudo apt update
 sudo apt -y upgrade
-sudo apt -y install git build-essential zlib1g-dev libfftw3-dev libboost-all-dev apache2
-git clone --recurse-submodules https://github.com/uNetworking/uWebSockets
+sudo apt -y install git build-essential gfortran cmake pkg-config python3 libspeexdsp-dev zlib1g-dev libfftw3-dev libboost-all-dev apache2
+git clone --recurse-submodules --shallow-submodules https://github.com/uNetworking/uWebSockets
 cd uWebSockets
 make
 sudo make install
