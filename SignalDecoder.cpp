@@ -6,7 +6,7 @@
 using namespace std::chrono;
 
 // Constructor
-SignalDecoder::SignalDecoder() : usblsb(1) {
+SignalDecoder::SignalDecoder() {
     setupSignalDecoder();
 }
 
@@ -17,17 +17,21 @@ SignalDecoder::~SignalDecoder() {
         iirfilt_crcf_destroy(ssb_filter_500);
         ssb_filter_500 = nullptr;
     }
-    if (ssb_filter_1800) {
-        iirfilt_crcf_destroy(ssb_filter_1800);
-        ssb_filter_1800 = nullptr;
+    if (am_filter_500) {
+        iirfilt_crcf_destroy(am_filter_500);
+        am_filter_500 = nullptr;
     }
-    if (ssb_filter_2700) {
-        iirfilt_crcf_destroy(ssb_filter_2700);
-        ssb_filter_2700 = nullptr;
+    if (lowpass_1800) {
+        iirfilt_crcf_destroy(lowpass_1800);
+        lowpass_1800 = nullptr;
     }
-    if (ssb_filter_3600) {
-        iirfilt_crcf_destroy(ssb_filter_3600);
-        ssb_filter_3600 = nullptr;
+    if (lowpass_2400) {
+        iirfilt_crcf_destroy(lowpass_2400);
+        lowpass_2400 = nullptr;
+    }
+    if (lowpass_3600) {
+        iirfilt_crcf_destroy(lowpass_3600);
+        lowpass_3600 = nullptr;
     }
     if (demod_usb) {
         ampmodem_destroy(demod_usb);
@@ -36,6 +40,10 @@ SignalDecoder::~SignalDecoder() {
     if (demod_lsb) {
         ampmodem_destroy(demod_lsb);
         demod_lsb = nullptr;
+    }
+    if (am_dc_blocker) {
+        iirfilt_rrrf_destroy(am_dc_blocker);
+        am_dc_blocker = nullptr;
     }
     if (demod_fm) {
         freqdem_destroy(demod_fm);
@@ -75,15 +83,16 @@ void SignalDecoder::create_bandpass_filter(iirfilt_crcf &filter, float fc, float
 
 // Setup method to initialize the SDR components
 void SignalDecoder::setupSignalDecoder() {
-    // create the SSB filter
     create_bandpass_filter(ssb_filter_500, fc_500, f0_500);
-    create_lowpass_filter(ssb_filter_1800, fc_1800, f0_1800);
-    create_lowpass_filter(ssb_filter_2700, fc_2700, f0_2700);
-    create_lowpass_filter(ssb_filter_3600, fc_3600, f0_3600);
+    create_lowpass_filter(am_filter_500, 500.0f / AUDIO_SAMPLE_RATE, 0.0f);
+    create_lowpass_filter(lowpass_1800, fc_1800, f0_1800);
+    create_lowpass_filter(lowpass_2400, fc_2400, f0_2400);
+    create_lowpass_filter(lowpass_3600, fc_3600, f0_3600);
 
-    // Create the amplitude demodulator object for USB
     demod_usb = ampmodem_create(0.99f, LIQUID_AMPMODEM_USB, 1);
     demod_lsb = ampmodem_create(0.99f, LIQUID_AMPMODEM_LSB, 1);
+    // Remove the carrier's DC level from the AM envelope at about 38 Hz.
+    am_dc_blocker = iirfilt_rrrf_create_dc_blocker(0.005f);
 
     // FM demodulator setup
     float modulation_index = 0.5f;
@@ -98,16 +107,16 @@ void SignalDecoder::setupSignalDecoder() {
 }
 
 void SignalDecoder::setMode(float value) {
-    if (!std::isfinite(value) || value < 0 || value > 2 || value != std::round(value)) return;
-    const int next = static_cast<int>(value);
-    if (next == usblsb) return;
-    usblsb = next;
+    if (!std::isfinite(value) || value < LSB || value > AM || value != std::round(value)) return;
+    const auto next = static_cast<Mode>(value);
+    if (next == mode) return;
+    mode = next;
     resetAudio();
 }
 
 void SignalDecoder::setFilter(float value) {
-    filter = static_cast<int>(std::round(value));
-    //printf("Filter: %d\n",filter);
+    if (value == 500 || value == 1800 || value == 2700 || value == 3600)
+        filter = static_cast<int>(value);
 }
 
 bool SignalDecoder::setNoiseReduction(float percent) {
@@ -117,61 +126,82 @@ bool SignalDecoder::setNoiseReduction(float percent) {
 }
 
 void SignalDecoder::resetAudio() {
+    if (mode == AM) iirfilt_rrrf_reset(am_dc_blocker);
+    resetFMSquelch();
     noiseReduction.reset();
     audioSamples.clear();
     gain = 1.0f;
 }
 
-float SignalDecoder::getUsbLsb() {
-    return (float(usblsb));
+void SignalDecoder::setFMSquelch(float level) {
+    const bool wasEnabled = fmSquelch.level() != 0;
+    if (!fmSquelch.setLevel(level) || mode != FM || wasEnabled == (fmSquelch.level() != 0)) return;
+    if (wasEnabled) {
+        audioSamples.clear();
+        noiseReduction.discardPendingAudio();
+        msresamp_rrrf_reset(resampler_48to8_audio);
+    } else {
+        resetFMSquelch();
+    }
 }
 
-// Decode the SSB signal
+unsigned SignalDecoder::getFMSquelchState() const {
+    if (mode != FM || fmSquelch.level() == 0) return 0;
+    return fmSquelch.isOpen() ? 2 : 1;
+}
+
+void SignalDecoder::resetFMSquelch() {
+    if (mode != FM || fmSquelch.level() == 0) return;
+    fmSquelch.reset();
+    freqdem_reset(demod_fm);
+    msresamp_rrrf_reset(resampler_48to8_audio);
+    audioSamples.clear();
+    noiseReduction.discardPendingAudio();
+    gain = 1.0f;
+}
+
+float SignalDecoder::getUsbLsb() {
+    return static_cast<float>(mode);
+}
+
 std::vector<float> SignalDecoder::demodulate(ClientInfo &data) {
     if (data.sdata.empty()) return {};
     liquid_float_complex *samples_48 = data.sdata.data();
     unsigned int len48 = data.sdata.size();
 
-    // SSB filter, no filter for FM
-    liquid_float_complex filtered_samples[len48];
-    for (unsigned int i = 0; i < len48; i++) {
-        if(usblsb == 2) {
-            // FM signal cannot be filtered here
-            filtered_samples[i] = samples_48[i];
-        }
-        else {
-            switch (filter) {
-                case 500:   iirfilt_crcf_execute(ssb_filter_500, samples_48[i], &filtered_samples[i]);
-                            break;
-                case 1800:   iirfilt_crcf_execute(ssb_filter_1800, samples_48[i], &filtered_samples[i]);
-                            break;
-                case 2700:   iirfilt_crcf_execute(ssb_filter_2700, samples_48[i], &filtered_samples[i]);
-                            break;
-                case 3600:   iirfilt_crcf_execute(ssb_filter_3600, samples_48[i], &filtered_samples[i]);
-                            break;
-            }            
+    iirfilt_crcf inputFilter = nullptr;
+    if (mode != FM) {
+        switch (filter) {
+            case 500: inputFilter = mode == AM ? am_filter_500 : ssb_filter_500; break;
+            case 1800: inputFilter = lowpass_1800; break;
+            case 2700: inputFilter = lowpass_2400; break; // Existing protocol ID for 2.4 kHz.
+            case 3600: inputFilter = lowpass_3600; break;
         }
     }
 
-    // SSB demodulator
-    float usb_audio[len48];  // Buffer for demodulated audio
-    for (unsigned int i = 0; i < len48; i++) {
-        if (usblsb == 1)
-            ampmodem_demodulate(demod_usb, filtered_samples[i], &usb_audio[i]);
-        else if(usblsb == 0)
-            ampmodem_demodulate(demod_lsb, filtered_samples[i], &usb_audio[i]);
-        else if(usblsb == 2)
-            freqdem_demodulate(demod_fm, filtered_samples[i], &usb_audio[i]);
-    }
+    const bool useSquelch = mode == FM && fmSquelch.level() != 0;
+    constexpr float targetLevel = 0.3f;
+    constexpr float maxGain = 1000.0f;
+    constexpr float attack = 1.0f;
+    constexpr float decay = 0.01f;
 
-    // ===== AGC ======
-    constexpr float targetLevel = 0.3f;     // Desired signal level
-    constexpr float maxGain = 1000.0f;        // Maximum allowed gain
-    constexpr float attack = 1.0f;          // How quickly to reduce gain (faster for loud sounds)
-    constexpr float decay = 0.01f;          // How quickly to restore gain (slower for quiet sounds)
-
+    float audio[len48];
     for (unsigned int i = 0; i < len48; i++) {
-        float absSample = fabs(usb_audio[i] * gain);
+        auto sample = samples_48[i];
+        if (inputFilter) iirfilt_crcf_execute(inputFilter, sample, &sample);
+        if (useSquelch) sample = fmSquelch.filterChannel(sample);
+        switch (mode) {
+            case LSB: ampmodem_demodulate(demod_lsb, sample, &audio[i]); break;
+            case USB: ampmodem_demodulate(demod_usb, sample, &audio[i]); break;
+            case FM: freqdem_demodulate(demod_fm, sample, &audio[i]); break;
+            case AM: iirfilt_rrrf_execute(am_dc_blocker, std::abs(sample), &audio[i]); break;
+        }
+        const float gate = useSquelch ? fmSquelch.audioGain(sample, audio[i]) : 1.0f;
+        if (gate == 0.0f) {
+            audio[i] = 0.0f;
+            continue; // Keep the audio AGC from turning up the muted noise.
+        }
+        float absSample = fabs(audio[i] * gain);
 
         // If the sample is too loud, reduce gain (attack)
         if (absSample > targetLevel) {
@@ -186,21 +216,20 @@ std::vector<float> SignalDecoder::demodulate(ClientInfo &data) {
         if (gain > maxGain) gain = maxGain;
         if (gain < 1.0f) gain = 1.0f;
 
-        usb_audio[i] *= gain;
+        audio[i] *= gain;
 
         // clipping
-        usb_audio[i] = std::max(-0.99f, std::min(usb_audio[i], 0.99f));
+        audio[i] = std::max(-0.99f, std::min(audio[i], 0.99f)) * gate;
     }
-    // =======================
 
     // downsample from 48 to 8kS/s 
     // Follow liquid-dsp's documented conservative output-buffer bound.
     std::vector<float> samples_8(static_cast<std::size_t>(std::ceil(1 + 2 * r_48to8 * len48)));
     unsigned int num_output_samples_8;
-    msresamp_rrrf_execute(resampler_48to8_audio, usb_audio, len48, samples_8.data(), &num_output_samples_8);
+    msresamp_rrrf_execute(resampler_48to8_audio, audio, len48, samples_8.data(), &num_output_samples_8);
 
     // Speex frames are independent of the unchanged 1024-sample wire packets.
-    noiseReduction.process(samples_8.data(), num_output_samples_8, audioSamples, usblsb != 2);
+    noiseReduction.process(samples_8.data(), num_output_samples_8, audioSamples, mode != FM);
 
     if (audioSamples.size() < 1024) {
         return std::vector<float>();

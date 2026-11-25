@@ -2,7 +2,7 @@
 
 WebSDR (`kwWebRXpp`) turns an SDRplay RSP1A or RSP1B into a receiver that can
 be used from desktop and mobile web browsers. Multiple listeners share the
-selected RF band and can independently tune, select USB/LSB/FM and adjust their
+selected RF band and can independently tune, select USB/LSB/FM/AM and adjust their
 audio, including speech noise reduction.
 
 **Live receiver:** [DB0SL WebSDR](http://sdr.db0sl.de).
@@ -15,7 +15,9 @@ The original 2024 version remains available on the
 - Desktop interface with a wideband waterfall and a second waterfall covering
   ±24 kHz around the listener's tuning frequency.
 - Mobile interface with touch tuning, audio controls and an FT8 table.
-- USB, LSB and FM reception; selectable SSB filters in the desktop settings menu.
+- USB, LSB, FM and AM reception with selectable audio bandwidth for SSB and AM.
+- Five browser memories for frequency, band, mode and audio bandwidth.
+- Per-listener FM squelch with a browser slider and receiver status.
 - Independent tuning, audio AGC and noise reduction for each logged-in listener.
 - Up to 20 listeners; band changes are permitted when exactly one user is logged in.
 - Band segments from 630 m through 70 cm, plus 27 MHz CB and PMR446.
@@ -137,7 +139,9 @@ Deploy these current interface files together:
 
 - `index.html` — desktop interface.
 - `fftmobile.html` — mobile interface.
-- `noise-reduction.js` — shared NR controls and receiver status handling.
+- `noise-reduction.js` — shared noise reduction controls.
+- `receiver-presets.js` — shared frequency memory controls.
+- `fm-squelch.js` — shared FM squelch controls and receiver status.
 - `ft8-countries.js` and `ft8-country-data.js` — FT8 country lookup.
 
 Open `http://<receiver-host>/` for the desktop interface, or
@@ -179,8 +183,13 @@ independently within it. Anonymous connections do not block band changes.
 In the desktop interface, click the upper waterfall for coarse tuning and the
 lower waterfall for fine tuning. Mouse-wheel steps are 100 Hz on the upper
 waterfall, 1 kHz with Shift, 12.5 kHz with Shift+Alt, and 10 Hz on the lower
-waterfall. SSB filter choices are available in the settings menu. The mobile
-interface provides touch tuning and the same per-listener NR controls.
+waterfall. The **NF Filter** controls the audio bandwidth for SSB and AM. It is
+in the desktop settings menu and beside the mode menu on mobile.
+
+Use **Speichern** and **Laden** to store and recall one of five memories. Each
+memory stores frequency, band, mode and audio bandwidth in the browser.
+Loading a memory in the current band works with multiple listeners. Loading a
+memory in a different band requires a single logged-in listener.
 
 ### Network and reverse proxy setup
 
@@ -200,17 +209,24 @@ port 9001. Known multipart suffixes such as `co.uk` retain their main-domain
 handling. For direct LAN use, serve the page over HTTP with the receiver's LAN
 address. The WebSocket rules are implemented in both HTML files.
 
+## FM squelch
+
+In FM mode, set **FM-Rauschsperre** from 0 (off) to 100. Higher values require a
+quieter FM channel to open. The browser saves the setting and displays **Offen**
+(open) or **Geschlossen** (closed) as reported by the receiver. The receiver
+measures noise above the speech band and mutes audio while the squelch is closed.
+
 ## Speech noise reduction
 
-Enable **NR** and adjust **Stärke** in either browser interface. Start around
+Enable **Noise Reduktion** and adjust **Stärke** in either browser interface. Start around
 50–60% and compare by switching NR on and off. The adjacent status confirms the
 setting actually applied by the receiver.
 
 - Every new listener connection starts with NR **off**.
 - Switching off retains the slider strength for the next comparison.
 - NR and audio AGC have separate state for each listener.
-- NR operates on USB/LSB speech. FM automatically bypasses it while preserving the
-  selected strength for a return to USB/LSB. Leave it off for CW and digital audio.
+- NR operates on USB, LSB and AM speech. FM bypasses it while preserving the
+  selected strength for a return to USB, LSB or AM. Leave it off for CW and digital audio.
 - The independent FT8 receiver, ADS-B and waterfall paths are unaffected.
 
 The denoiser is adapted from QO100_TRX2 and uses SpeexDSP 1.2.1. It processes
@@ -307,6 +323,7 @@ require TCP port 9001 to be free.
 | Command | Checks |
 | --- | --- |
 | `make nr-test` | Noise attenuation, speech preservation, exact float bypass, buffering/reset, per-listener AGC/NR, FM bypass and both browser controls |
+| `make fm-squelch-test` | FM carrier and noise detection, adjacent-channel rejection, threshold, hang time, muting and bypass |
 | `make login-test` | Callsign validation, user counting, band permissions, NR commands, logout and browser connection handling |
 | `make ft8-test` | Standalone decoder integration and bundled WSJT-X/reference-file checksums |
 | `make ft8-live-test` | Synthetic reception through the production DSP/UTC-slot path and real decoding; no SDR device is used |

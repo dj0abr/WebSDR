@@ -9,8 +9,11 @@
 #include <iostream>
 #include "global.h"
 #include "NoiseReduction.h"
+#include "FMSquelch.h"
 
 class SignalDecoder {
+    enum Mode { LSB = 0, USB = 1, FM = 2, AM = 3 };
+
 public:
     // Constructor
     SignalDecoder();
@@ -24,17 +27,23 @@ public:
     // Decode method for processing samples
     std::vector<float> demodulate(ClientInfo &data);
 
-    // set decoder mode usb, lsb, fm
+    // The decoder modes use the same values as the browser protocol.
     void setMode(float value);
 
-    // set SSB Filter
+    // Set the SSB/AM audio bandwidth.
     void setFilter(float value);
 
     // 0 disables NR. FM bypasses it while retaining the selected strength.
     bool setNoiseReduction(float percent);
     unsigned getNoiseReduction() const { return noiseReduction.percent(); }
-    unsigned getEffectiveNoiseReduction() const { return usblsb == 2 ? 0 : noiseReduction.percent(); }
+    unsigned getEffectiveNoiseReduction() const { return mode == FM ? 0 : noiseReduction.percent(); }
     void resetAudio();
+
+    void setFMSquelch(float level);
+    unsigned getFMSquelchLevel() const { return fmSquelch.level(); }
+    // WebSocket state codes: off (0), closed (1), open (2).
+    unsigned getFMSquelchState() const;
+    void resetFMSquelch();
 
     // read the current OpMode
     float getUsbLsb();
@@ -47,25 +56,27 @@ private:
     const float BANDWIDTH = 2500.0f;
     const float AUDIO_SAMPLE_RATE = 48000.0f;
     float r_48to8 = 8000.0f / AUDIO_SAMPLE_RATE;
-    int usblsb = 0;
+    Mode mode = USB;
     int filter = 3600;
     std::vector<float> audioSamples;
     NoiseReduction noiseReduction;
+    FMSquelch fmSquelch;
     float gain = 1.0f; // AGC history belongs to this listener.
 
 
-    // SSB Filter
+    // Baseband filters. AM needs a low-pass filter that preserves the carrier.
     iirfilt_crcf ssb_filter_500 = nullptr;
-    iirfilt_crcf ssb_filter_1800 = nullptr;
-    iirfilt_crcf ssb_filter_2700 = nullptr;
-    iirfilt_crcf ssb_filter_3600 = nullptr;
+    iirfilt_crcf am_filter_500 = nullptr;
+    iirfilt_crcf lowpass_1800 = nullptr;
+    iirfilt_crcf lowpass_2400 = nullptr;
+    iirfilt_crcf lowpass_3600 = nullptr;
 
     float fc_500 = 1000.0f / AUDIO_SAMPLE_RATE;
     float f0_500 = 500.0f / AUDIO_SAMPLE_RATE;
     float fc_1800 = 1800.0f / AUDIO_SAMPLE_RATE; // Normalized cutoff frequency
     float f0_1800 = 0.0f;
-    float fc_2700 = 2400.0f / AUDIO_SAMPLE_RATE; // Normalized cutoff frequency
-    float f0_2700 = 0.0f;
+    float fc_2400 = 2400.0f / AUDIO_SAMPLE_RATE; // Normalized cutoff frequency
+    float f0_2400 = 0.0f;
     float fc_3600 = 3600.0f / AUDIO_SAMPLE_RATE; // Normalized cutoff frequency
     float f0_3600 = 0.0f;
     unsigned int order = 4;  // Filter order, can be adjusted for sharper or smoother roll-off
@@ -73,6 +84,7 @@ private:
     // Demodulators
     ampmodem demod_usb = nullptr, demod_lsb = nullptr;
     freqdem demod_fm = nullptr;
+    iirfilt_rrrf am_dc_blocker = nullptr;
 
     // Resampler for Audio 48k to 8k
     msresamp_rrrf resampler_48to8_audio = nullptr;

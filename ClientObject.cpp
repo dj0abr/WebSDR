@@ -55,7 +55,7 @@ void ClientObject::processClient() {
             switch (clientInfo.messageId) {
                 case 2: { // message from Browser
                         if (clientInfo.message.size() < 2 || !std::isfinite(clientInfo.message[0]) ||
-                            clientInfo.message[0] < 0 || clientInfo.message[0] > 5 ||
+                            clientInfo.message[0] < 0 || clientInfo.message[0] > 6 ||
                             clientInfo.message[0] != std::round(clientInfo.message[0])) break;
                         int BrowserMessageID = static_cast<int>(clientInfo.message[0]);
                         // Message ID:
@@ -71,6 +71,7 @@ void ClientObject::processClient() {
                                     break;
                             case 2: setMode(clientInfo);
                                     sendNoiseReductionState();
+                                    sendFMSquelchState();
                                     break;
                             case 3: setFilter(clientInfo);
                                     break;
@@ -79,6 +80,11 @@ void ClientObject::processClient() {
                             case 5: if (clientInfo.message[1] != -1)
                                         signaldecoder.setNoiseReduction(clientInfo.message[1]);
                                     sendNoiseReductionState();
+                                    break;
+                            // Command 6 sets FM squelch (0..100) or queries it (-1).
+                            case 6: if (clientInfo.message[1] != -1)
+                                        signaldecoder.setFMSquelch(clientInfo.message[1]);
+                                    sendFMSquelchState(true);
                                     break;
                         }
                         break;
@@ -137,8 +143,12 @@ void ClientObject::processClient() {
 
 void ClientObject::setFrequency(ClientInfo clientInfo)
 {
-    float findex = clientInfo.message[1];
-    tuner.setRXFrequencyOffset(findex);
+    const float previousShift = tuner.getFrequencyShift();
+    tuner.setRXFrequencyOffset(clientInfo.message[1]);
+    if (previousShift != tuner.getFrequencyShift()) {
+        signaldecoder.resetFMSquelch();
+        sendFMSquelchState();
+    }
 }
 
 void ClientObject::setBand(ClientInfo clientInfo)
@@ -149,6 +159,7 @@ void ClientObject::setBand(ClientInfo clientInfo)
     SDRHardware& hardware = SDRHardware::getInstance();
     hardware.setBand(fband);
     signaldecoder.resetAudio();
+    sendFMSquelchState();
 }
 
 void ClientObject::setMode(ClientInfo clientInfo)
@@ -174,6 +185,20 @@ void ClientObject::sendNoiseReductionState()
     WebSocketServer::getInstance().sendDataToClient(state);
 }
 
+void ClientObject::sendFMSquelchState(bool force)
+{
+    const unsigned gate = signaldecoder.getFMSquelchState();
+    if (!force && gate == lastFMSquelchState) return;
+    lastFMSquelchState = gate;
+    ClientTXData state{};
+    state.clientId = clientId;
+    state.data[0] = 9; // Version, configured level, and gate status.
+    state.data[1] = 1;
+    state.data[2] = signaldecoder.getFMSquelchLevel();
+    state.data[3] = gate;
+    WebSocketServer::getInstance().sendDataToClient(state);
+}
+
 // process raw samples coming at a speed of 480 kS/s
 void ClientObject::decodeSamples(ClientInfo clientInfo)
 {
@@ -183,6 +208,7 @@ void ClientObject::decodeSamples(ClientInfo clientInfo)
 
     // send the samples to the SignalDecoder for demodulation
     std::vector<float> audiosamples = signaldecoder.demodulate(samples_baseband_48);
+    sendFMSquelchState();
     if (!audiosamples.empty()) {
         if (audiosamples.size() == 1025) {
             // the 1024 audio samples and the ID are in the float vector audiosamples.message

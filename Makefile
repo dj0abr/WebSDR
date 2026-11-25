@@ -43,7 +43,7 @@ endif
 LDFLAGS = -L$(LIB_PATH) -lpthread -lm -lfftw3f -lsdrplay_api -lz -lliquid /usr/local/lib/uSockets.a $(SPEEX_LIBS)
 
 # Source and object files
-SRC = kwWebRXpp.cpp SDRHardware.cpp FFTProcessor.cpp WebSocketServer.cpp ClientManager.cpp ClientObject.cpp Tuner.cpp SignalDecoder.cpp NoiseReduction.cpp NarrowFFT.cpp ADSB.cpp SDRQUEUE.cpp ADSBstream.cpp ADSB_FFT.cpp FT8Receiver.cpp FT8DecoderProcess.cpp SDRInputResampler.cpp
+SRC = kwWebRXpp.cpp SDRHardware.cpp FFTProcessor.cpp WebSocketServer.cpp ClientManager.cpp ClientObject.cpp Tuner.cpp SignalDecoder.cpp FMSquelch.cpp NoiseReduction.cpp NarrowFFT.cpp ADSB.cpp SDRQUEUE.cpp ADSBstream.cpp ADSB_FFT.cpp FT8Receiver.cpp FT8DecoderProcess.cpp SDRInputResampler.cpp
 OBJ = $(SRC:.cpp=.o)
 DEP = $(SRC:.cpp=.d)
 
@@ -105,7 +105,7 @@ ft8-country-test:
 
 # Check login/counting and band permissions without opening the SDR device.
 LOGIN_TEST = $(FT8_BUILD_DIR)/login-test
-LOGIN_TEST_SRC = tests/login_test.cpp ClientManager.cpp ClientObject.cpp WebSocketServer.cpp Tuner.cpp SignalDecoder.cpp NoiseReduction.cpp NarrowFFT.cpp FT8Receiver.cpp FT8DecoderProcess.cpp SDRInputResampler.cpp SDRQUEUE.cpp
+LOGIN_TEST_SRC = tests/login_test.cpp ClientManager.cpp ClientObject.cpp WebSocketServer.cpp Tuner.cpp SignalDecoder.cpp FMSquelch.cpp NoiseReduction.cpp NarrowFFT.cpp FT8Receiver.cpp FT8DecoderProcess.cpp SDRInputResampler.cpp SDRQUEUE.cpp
 $(LOGIN_TEST): $(LOGIN_TEST_SRC) $(wildcard *.h) $(SPEEX_DEP)
 	mkdir -p $(FT8_BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I. -o $@ $(LOGIN_TEST_SRC) -L$(LIB_PATH) -lliquid -lfftw3f -lpthread -lm -lz /usr/local/lib/uSockets.a $(SPEEX_LIBS)
@@ -115,15 +115,24 @@ login-test: $(LOGIN_TEST)
 	$(NODE) ft8/tests/websocket_url_test.js
 
 NR_TEST = $(FT8_BUILD_DIR)/noise-reduction-test
-$(NR_TEST): tests/noise_reduction_test.cpp NoiseReduction.cpp NoiseReduction.h SignalDecoder.cpp SignalDecoder.h $(SPEEX_DEP)
+$(NR_TEST): tests/noise_reduction_test.cpp NoiseReduction.cpp NoiseReduction.h SignalDecoder.cpp SignalDecoder.h FMSquelch.cpp FMSquelch.h $(SPEEX_DEP)
 	mkdir -p $(FT8_BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -I. -o $@ tests/noise_reduction_test.cpp NoiseReduction.cpp SignalDecoder.cpp -L$(LIB_PATH) -lliquid $(SPEEX_LIBS) -lm
+	$(CXX) $(CXXFLAGS) -I. -o $@ tests/noise_reduction_test.cpp NoiseReduction.cpp SignalDecoder.cpp FMSquelch.cpp -L$(LIB_PATH) -lliquid $(SPEEX_LIBS) -lm
 
 .PHONY: nr-test
 nr-test: $(NR_TEST) $(LOGIN_TEST)
 	./$(NR_TEST)
 	./$(LOGIN_TEST)
 	$(NODE) tests/noise_reduction_ui_test.js
+
+FM_SQUELCH_TEST = $(FT8_BUILD_DIR)/fm-squelch-test
+$(FM_SQUELCH_TEST): tests/fm_squelch_test.cpp SignalDecoder.cpp SignalDecoder.h FMSquelch.cpp FMSquelch.h NoiseReduction.cpp NoiseReduction.h $(SPEEX_DEP)
+	mkdir -p $(FT8_BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I. -o $@ tests/fm_squelch_test.cpp SignalDecoder.cpp FMSquelch.cpp NoiseReduction.cpp -L$(LIB_PATH) -lliquid $(SPEEX_LIBS) -lm
+
+.PHONY: fm-squelch-test
+fm-squelch-test: $(FM_SQUELCH_TEST)
+	./$(FM_SQUELCH_TEST)
 
 # Build target executable
 $(TARGET): $(OBJ) $(SPEEX_DEP)

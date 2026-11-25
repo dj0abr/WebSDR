@@ -43,6 +43,8 @@ private:
     void setFilter(ClientInfo clientInfo);
     void decodeSamples(ClientInfo clientInfo);
     void sendNoiseReductionState();
+    void sendFMSquelchState(bool force = false);
+    unsigned lastFMSquelchState = 0;
 
     // Flag to stop the thread
     int clientId;

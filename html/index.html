@@ -414,12 +414,34 @@
             background: #fff4f4;
         }
 
+        .receiver-presets {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 5px 10px;
+            padding: 4px 0;
+            font: 12px Arial, sans-serif;
+        }
+        .receiver-preset {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+        }
+        .receiver-preset span { font-weight: bold; }
+        .receiver-preset button {
+            min-height: 24px;
+            padding: 2px 5px;
+            font: inherit;
+        }
+        #receiverPresetStatus { color: #44515b; }
         .nr-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
             font: 14px Arial, sans-serif; padding: 8px 0; }
         .nr-controls label { white-space: nowrap; }
         .nr-controls input[type="range"] { width: 120px; margin: 0; }
         .nr-controls output { min-width: 34px; }
         #nrStatus { font-size: 12px; color: #44515b; }
+        .fm-squelch[hidden] { display: none; }
+        #fmSquelchStatus { font-size: 12px; color: #44515b; }
 </style>
 </head>
 <body>
@@ -475,6 +497,7 @@
             <option value="1">USB</option>
             <option value="0">LSB</option>
             <option value="2">FM</option>
+            <option value="3">AM</option>
         </select>
 
         <label for="volumeControl" class="vollabel">Lautstärke:</label>
@@ -496,7 +519,7 @@
                         <option value="500">500 Hz</option>
                         <option value="1800">1.8 kHz</option>
                         <option value="2700">2.4 kHz</option>
-                        <option value="3600">3.6 kHz</option>
+                        <option value="3600" selected>3.6 kHz</option>
                     </select>
                 </div>
                 
@@ -507,13 +530,24 @@
     </div>
 </div>
 
+<div class="receiver-presets" id="receiverPresets" role="group" aria-label="Frequenzspeicher">
+    <span id="receiverPresetStatus" role="status"></span>
+</div>
+
 <div class="nr-controls" role="group" aria-label="Rauschunterdrückung">
-    <label title="Rauschunterdrückung für USB/LSB-Sprechfunk; bei FM pausiert">
-        <input type="checkbox" id="nrEnabled" disabled> NR</label>
+    <label title="Rauschunterdrückung für USB, LSB und AM; bei FM pausiert">
+        <input type="checkbox" id="nrEnabled" disabled> Noise Reduktion</label>
     <label for="nrStrength">Stärke:</label>
     <input type="range" id="nrStrength" min="1" max="100" step="1" value="60" disabled>
     <output id="nrStrengthValue" for="nrStrength">60 %</output>
     <span id="nrStatus" role="status" aria-live="polite">Nicht verbunden</span>
+</div>
+
+<div class="nr-controls fm-squelch" id="fmSquelch" role="group" aria-label="FM-Rauschsperre" hidden>
+    <label for="fmSquelchLevel">FM-Rauschsperre:</label>
+    <input type="range" id="fmSquelchLevel" min="0" max="100" step="1" value="0" title="0 = Aus. Höhere Werte öffnen bei weniger Rauschen.">
+    <output id="fmSquelchValue" for="fmSquelchLevel">0</output>
+    <span id="fmSquelchStatus" role="status">Aus</span>
 </div>
 
 <div class="gui-space">
@@ -620,6 +654,7 @@
 <script src="ft8-country-data.js"></script>
 <script src="ft8-countries.js"></script>
 <script src="noise-reduction.js"></script>
+<script src="fm-squelch.js"></script>
 <script>
     let fftData = new Float32Array(1024);  // Initialize with dummy values
     let ssbData = new Float32Array(1024);  // Initialize with dummy values
@@ -833,10 +868,12 @@
             clearTimeout(reconnectTimer);
             reconnectTimer = null;
             document.getElementById("bandBox").disabled = true;
+            globalThis.ReceiverPresets?.reset();
             document.getElementById("ft8Status").textContent = "Bitte Rufzeichen eingeben";
             ft8DialHz = null;
             audioQueue = [];
             globalThis.NoiseReductionControl?.disconnect();
+            globalThis.FMSquelchControl?.disconnect();
             if (socket) {
                 const closing = socket;
                 socket = null;
@@ -888,6 +925,7 @@
             if (socket !== connection) return;
             sendUserPW();
             globalThis.NoiseReductionControl?.connect(connection);
+            globalThis.FMSquelchControl?.connect(connection);
             console.log("WebSocket connected!");
             document.getElementById("ft8Status").textContent = "Warte auf Empfänger …";
         };
@@ -907,6 +945,8 @@
             if (socket !== connection) return;
             socket = null;
             globalThis.NoiseReductionControl?.disconnect();
+            globalThis.FMSquelchControl?.disconnect();
+            globalThis.ReceiverPresets?.reset();
             document.getElementById("bandBox").disabled = true;
             console.log("WebSocket disconnected. Attempting to reconnect...");
             ft8DialHz = null;
@@ -990,6 +1030,7 @@
                     if(bandchanged == 0) text = "LSB";
                     if(bandchanged == 1) text = "USB";
                     if(bandchanged == 2) text = "FM";
+                    if(bandchanged == 3) text = "AM";
                     let textWidth = waterfallCtx.measureText(text).width;
                     let textHeight = 16; // Approximate height of the text, can be adjusted
                     waterfallCtx.fillStyle = 'black';
@@ -1675,6 +1716,11 @@
         if (data.byteLength === 4100 || data.byteLength === 1028) {
             let dataView = new DataView(data); // Create a DataView from the ArrayBuffer
             idvalue = dataView.getFloat32(0, true);
+            if (idvalue === 9) {
+                if (data.byteLength === 4100)
+                    globalThis.FMSquelchControl?.handleState(new Float32Array(data));
+                return;
+            }
             if (idvalue === 8) {
                 if (data.byteLength === 4100)
                     globalThis.NoiseReductionControl?.handleState(new Float32Array(data));
@@ -1996,6 +2042,8 @@
         // op mode
         usblsb = configData[2];
         document.getElementById('modeBox').value = usblsb;
+        globalThis.FMSquelchControl?.onMode(usblsb);
+        if (usblsb === 3) freqOffset = clampFrequency(configData[0] + configData[1] - bigFFTstartQRG);
 
         usernumber = configData[5];
         const selectBox = document.getElementById("bandBox");
@@ -2006,6 +2054,7 @@
 
         makeLabels480(configData);
         makeLabels48(configData);
+        globalThis.ReceiverPresets?.onConfig(configData, fidx);
     }
 
     // Color mapping function with fine-tuned RGB transitions
@@ -2181,7 +2230,13 @@
     }
 
 
-    // Function to draw the white tuning line on the overlay canvas
+    function amHalfWidth(canvas, spectrumHz) {
+        const filter = Number(document.getElementById("nffilter").value);
+        const bandwidth = filter === 2700 ? 2400 : filter;
+        return bandwidth * canvas.width / spectrumHz;
+    }
+
+    // Draw the tuned passband on the overlay canvas.
     function drawTuningLine() {
         let index = getPixelIndex(freqOffset);
         // Clear the previous overlay (remove previous tuning line)
@@ -2193,9 +2248,10 @@
 
         // Draw a filled rectangle on the overlay canvas
         let x = (index / 1024) * overlayCanvas.width;
-        let rectWidth = 480000 * 6 / (bigFFTendQRG - bigFFTstartQRG);
+        const bandWidth = bigFFTendQRG - bigFFTstartQRG;
+        let rectWidth = usblsb === 3 ? amHalfWidth(overlayCanvas, bandWidth) : 480000 * 6 / bandWidth;
         if(usblsb == 0) rectWidth = - rectWidth;
-        if(usblsb == 2) {
+        if (usblsb === 2 || usblsb === 3) {
             x -= rectWidth;
             rectWidth *= 2;
         }
@@ -2214,9 +2270,9 @@
 
         // Draw a filled rectangle on the overlay canvas
         let x2 = (512 / 1024) * overlayCanvas2.width;
-        let rectWidth2 = 64;
+        let rectWidth2 = usblsb === 3 ? amHalfWidth(overlayCanvas2, 48000) : 64;
         if(usblsb == 0) rectWidth2 = - rectWidth2;
-        if(usblsb == 2) {
+        if (usblsb === 2 || usblsb === 3) {
             x2 -= rectWidth2;
             rectWidth2 *= 2;
         }
@@ -2233,18 +2289,14 @@
         let x = getPixelIndex(freqOffset);
         let x2 = (512 / 1024) * overlayCanvas2.width;
 
-        const upwidth = 480000 * 6 / (bigFFTendQRG - bigFFTstartQRG);
-
-        // and in the lower label CTX the connecting lines
-        let xo1 = x;
-        if(usblsb == 2) xo1 -= upwidth;
-        let xo2 = x+upwidth;
-        if(usblsb == 0) xo2 = x-upwidth;
-
-        let xu1 = x2;
-        if(usblsb == 2) xu1 -= 64;
-        let xu2 = x2+64;
-        if(usblsb == 0) xu2 = x2-64;
+        const bandWidth = bigFFTendQRG - bigFFTstartQRG;
+        const upwidth = usblsb === 3 ? amHalfWidth(overlayCanvas, bandWidth) : 480000 * 6 / bandWidth;
+        const downwidth = usblsb === 3 ? amHalfWidth(overlayCanvas2, 48000) : 64;
+        const centered = usblsb === 2 || usblsb === 3;
+        const xo1 = centered ? x - upwidth : x;
+        const xo2 = usblsb === 0 ? x - upwidth : x + upwidth;
+        const xu1 = centered ? x2 - downwidth : x2;
+        const xu2 = usblsb === 0 ? x2 - downwidth : x2 + downwidth;
 
         // Set the stroke style for the lines (grey color)
         labelCtx.strokeStyle = '#404040';
@@ -2302,6 +2354,7 @@
     }
 
     function updateBand() {
+        globalThis.ReceiverPresets?.cancel();
         const bandBox = document.getElementById("bandBox");
         const selectedValue = parseFloat(bandBox.value);
         bandchanged = selectedValue; // draws horizontal line and label into the waterfall
@@ -2323,6 +2376,7 @@
         const selectedValue = parseFloat(filterBox.value);
         
         sendFilterToServer(selectedValue);
+        if (usblsb === 3) drawTuningLine();
     }
     
     // Attach event listeners
@@ -2576,5 +2630,6 @@ window.addEventListener("load", () => {
 
 </script>
 
+<script src="receiver-presets.js"></script>
 </body>
 </html>

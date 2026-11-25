@@ -16,6 +16,7 @@ public:
     void set(unsigned percent);
     unsigned percent() const { return percent_; }
     void reset();
+    void discardPendingAudio() { used_ = 0; }
     // Append complete frames, keeping up to 159 input samples for the next call.
     // Even in bypass Speex keeps learning; the dry float samples stay exact.
     void process(const float* input, std::size_t count, std::vector<float>& output,
