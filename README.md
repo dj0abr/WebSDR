@@ -12,9 +12,9 @@ The original 2024 version remains available on the
 
 ## Features
 
-- Desktop interface with a wideband waterfall and a second waterfall covering
-  ±24 kHz around the listener's tuning frequency.
-- Mobile interface with touch tuning, audio controls and an FT8 table.
+- Responsive main interface with light and dark themes, a band spectrum and
+  waterfall, and a ±24 kHz zoom around the listener's tuning frequency.
+- Compact mobile interface with touch tuning, audio controls and an FT8 table.
 - USB, LSB, FM and AM reception with selectable audio bandwidth for SSB and AM.
 - Five browser memories for frequency, band, mode and audio bandwidth.
 - Per-listener FM squelch with a browser slider and receiver status.
@@ -23,7 +23,7 @@ The original 2024 version remains available on the
 - Band segments from 630 m through 70 cm, plus 27 MHz CB and PMR446.
 - Automatic FT8 decoding within supported band segments, with results in the
   terminal and both browser interfaces, including callsign-based country lookup.
-- ADS-B reception at 1090 MHz, with an aircraft table and map in the desktop interface.
+- ADS-B reception at 1090 MHz, with an aircraft table and map in the main interface.
 
 **Live-tested on RSP1A:** the current version, including noise reduction, was
 successfully rebuilt on the receiver host with `make clean` followed by `make`.
@@ -137,16 +137,16 @@ sudo cp -a html/. /var/www/html/
 Use the actual document root if your web server has a different configuration.
 Deploy these current interface files together:
 
-- `index.html` — desktop interface.
-- `fftmobile.html` — mobile interface.
+- `index.html` — responsive main interface.
+- `fftmobile.html` — compact mobile interface.
 - `noise-reduction.js` — shared noise reduction controls.
 - `receiver-presets.js` — shared frequency memory controls.
 - `fm-squelch.js` — shared FM squelch controls and receiver status.
 - `ft8-countries.js` and `ft8-country-data.js` — FT8 country lookup.
 
-Open `http://<receiver-host>/` for the desktop interface, or
-`http://<receiver-host>/fftmobile.html` for the mobile interface. Reload the page
-after an update; use a hard reload if the browser retains older JavaScript.
+Open `http://<receiver-host>/` on desktop or mobile. The compact mobile page
+is available at `http://<receiver-host>/fftmobile.html`. Reload the page after
+an update if the browser retains the previous interface.
 
 ## Updating an existing receiver
 
@@ -180,11 +180,13 @@ rule. The server also enforces this rule: when multiple users are logged in,
 the RF band is shared and cannot be changed, while each listener can still tune
 independently within it. Anonymous connections do not block band changes.
 
-In the desktop interface, click the upper waterfall for coarse tuning and the
-lower waterfall for fine tuning. Mouse-wheel steps are 100 Hz on the upper
-waterfall, 1 kHz with Shift, 12.5 kHz with Shift+Alt, and 10 Hz on the lower
-waterfall. The **NF Filter** controls the audio bandwidth for SSB and AM. It is
-in the desktop settings menu and beside the mode menu on mobile.
+The main interface puts **Audio** and the **Hell**/**Dunkel** theme switch in
+the frequency panel. The selected theme is saved in the browser. Click or tap
+the band spectrum or waterfall for coarse tuning and the zoom for fine tuning.
+Mouse-wheel steps are 100 Hz in the band view, 1 kHz with Shift, 12.5 kHz with
+Shift+Alt, and 10 Hz in the zoom. **NF-Filter** is under **Audio & Filter** and
+sets the audio bandwidth for SSB and AM. The compact mobile page places it
+beside the mode menu.
 
 Use **Speichern** and **Laden** to store and recall one of five memories. Each
 memory stores frequency, band, mode and audio bandwidth in the browser.

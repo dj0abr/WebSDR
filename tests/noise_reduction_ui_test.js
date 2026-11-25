@@ -54,9 +54,11 @@ for (const page of ['index.html', 'fftmobile.html']) {
     const html = fs.readFileSync(path.join(root, 'html', page), 'utf8');
     assert.equal((html.match(/id="nrEnabled"/g) || []).length, 1);
     assert.match(html, /src="noise-reduction.js"/);
-    const inline = html.match(/<script>([\s\S]*?)<\/script>/)[1];
-    new vm.Script(inline);
-    const update = inline.match(/    function updateFFT\([^]*?\n    }/)[0];
+    const inlineScripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+    for (const [, code] of inlineScripts) new vm.Script(code);
+    const receiverScript = inlineScripts.find(([, code]) => code.includes('function updateFFT('));
+    assert.ok(receiverScript, page);
+    const update = receiverScript[1].match(/    function updateFFT\([^]*?\n    }/)[0];
     const frames = [];
     const context = {NoiseReductionControl: {handleState: frame => frames.push(frame)}};
     vm.runInNewContext(update, context);

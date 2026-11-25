@@ -26,16 +26,19 @@ const cases = [
 ];
 function fixture(page, savedUsername = '', hostname = 'localhost', protocol = 'http:') {
     const html = fs.readFileSync(path.join(__dirname, '../../html', page), 'utf8');
-    const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
-    new vm.Script(script);
+    const inlineScripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+    for (const [, code] of inlineScripts) new vm.Script(code);
+    const receiverScript = inlineScripts.find(([, code]) => code.includes('function setupWebSocket('));
+    assert.ok(receiverScript, page);
+    const [, script] = receiverScript;
     assert.match(html, /id="bandBox" disabled/);
     const extract = name => {
         const match = script.match(new RegExp('    function ' + name + '\\([^]*?\\n    }'));
         assert.ok(match, name);
         return match[0];
     };
-    const elements = Object.fromEntries(['username', 'password', 'ft8Status', 'bandBox', 'modeBox'].map(id =>
-        [id, {value: '', textContent: '', disabled: id === 'bandBox', listeners: {},
+    const elements = Object.fromEntries(['username', 'password', 'ft8Status', 'bandBox', 'modeBox', 'connectionState', 'freq'].map(id =>
+        [id, {value: '', textContent: '', disabled: id === 'bandBox', listeners: {}, dataset: {},
             addEventListener(event, callback) {this.listeners[event] = callback;}}]));
     const storage = new Map([['username', savedUsername], ['password', 'obsolete-password']]);
     const timers = new Map(), connections = [], loads = [];
@@ -58,14 +61,15 @@ function fixture(page, savedUsername = '', hostname = 'localhost', protocol = 'h
         setTimeout: callback => {timers.set(++timerId, callback); return timerId;},
         clearTimeout: id => timers.delete(id),
         updateFFT: data => {received = data;},
-        updateInfoVisibility() {}, drawTuningLine() {}, draw_connlines() {},
-        makeLabels480() {}, makeLabels48() {}, printQRG() {}, getHamRadioBand: () => 20,
+        updateInfoVisibility() {}, drawTuningLine() {}, printQRG() {}, getHamRadioBand: () => 20,
+        clampFrequency: value => value, refreshReadout() {}, updateSignalStrength() {},
     };
     const names = ['getCallsign', 'isValidCallsign', 'syncLogin', 'setupWebSocket', 'retryConnection',
         'sendUserPW', 'sendBandToServer', 'sendModeToServer', 'sendFreqOffsetToServer', 'handle_config'];
-    const start = script.indexOf('    function saveToLocalStorage()');
-    const end = script.indexOf(page === 'index.html' ? '    function toggleMenu()' : '    window.onload', start);
-    vm.runInNewContext(names.map(extract).join('\n') + '\n' + script.slice(start, end), context);
+    if (page === 'index.html') names.push('setConnectionState');
+    const loginBindings = script.match(/    function saveToLocalStorage\(\)[\s\S]*?\n    \}\);/);
+    assert.ok(loginBindings, page);
+    vm.runInNewContext(names.map(extract).join('\n') + '\n' + loginBindings[0], context);
     return {context, elements, connections, timers, storage, received: () => received,
         load: () => loads.forEach(callback => callback()),
         input: value => {elements.username.value = value; elements.username.listeners.input();},
@@ -88,6 +92,7 @@ for (const page of ['index.html', 'fftmobile.html']) {
         assert.equal(f.received(), frame.buffer, 'FT8 frames must reach the browser dispatcher');
         f.context.handle_config([14000000, 0, 1, 14000000, 14350000, 1]);
         assert.equal(f.elements.bandBox.disabled, false);
+        if (page === 'index.html') assert.equal(f.elements.connectionState.dataset.state, 'live');
         f.context.handle_config([14000000, 0, 1, 14000000, 14350000, 2]);
         assert.equal(f.elements.bandBox.disabled, true);
         socket.close();

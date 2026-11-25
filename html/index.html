@@ -1,655 +1,513 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web SDR RX</title>
+    <title>DB0SL WebSDR</title>
     <link
         rel="stylesheet"
         href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
+    <script>
+        const themePreferenceKey = "kwWebRXpp.testTheme";
+        const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
+        let selectedTheme = null;
+        try {
+            const saved = localStorage.getItem(themePreferenceKey);
+            if (saved === "light" || saved === "dark") selectedTheme = saved;
+        } catch {
+            // Use the system preference when storage is unavailable.
+        }
+        document.documentElement.dataset.theme = selectedTheme ?? (systemTheme.matches ? "dark" : "light");
+    </script>
     <style>
-        .titlecontainer {
-            display: flex;
-            align-items: center;  /* Vertically center the content */
+        :root {
+            color-scheme: dark;
+            --bg: #0c1119;
+            --panel: #151d29;
+            --raised: #1b2533;
+            --control: #101824;
+            --border: #354255;
+            --separator: #2a3748;
+            --text: #ebf1f8;
+            --muted: #a9b7c9;
+            --accent: #ffc176;
+            --accent-soft: #392c22;
+            --green: #70d8b3;
+            --danger: #ff9da4;
+            --plot: #111c2a;
+            --plot-grid: #2d3e54;
+            --trace: #71ddce;
+            --trace-fill: #58c4b824;
+            --waterfall-bg: #090f1d;
+            --radius: 12px;
+            --mono: "IBM Plex Mono", "Cascadia Mono", ui-monospace, monospace;
+            font: 14px/1.45 "Instrument Sans", system-ui, sans-serif;
+        }
+        :root[data-theme="light"] {
+            color-scheme: light;
+            --bg: #eaf0f5;
+            --panel: #ffffff;
+            --raised: #f2f5f8;
+            --control: #fbfcfd;
+            --border: #c8d3e0;
+            --separator: #dbe4ed;
+            --text: #19273a;
+            --muted: #4b6077;
+            --accent: #914700;
+            --accent-soft: #faead7;
+            --green: #116748;
+            --danger: #a2273b;
+            --plot: #eef4f8;
+            --plot-grid: #ccd9e4;
+            --trace: #087a70;
+            --trace-fill: #16918725;
         }
 
-        .title {
-            font-size: 28px;
-            font-weight: bold;
-            font-family: Arial, sans-serif;
-        }
-
-        .title1 {
-            font-size: 8px;  /* Adjust the size for the text next to the title */
-            margin-left: 20px;  /* Add some spacing between the two divs */
-            margin-right: 30px;
-        }
-
-        .freq {
-            font-size: 24px;
-            font-weight: bold;
-            font-family: Arial, sans-serif;
-            color: blue;
-            padding-right: 10px;
-        }
-
-        .bandlabel {
-            font-size: 16px;
-            font-weight: bold;
-            font-family: Arial, sans-serif;
-            color: black;
-            padding-top: 14px;
-            padding-left: 15px;
-            margin-right: 10px;
-        }
-
-        .audiolabel {
-            font-size: 16px;
-            font-weight: bold;
-            font-family: Arial, sans-serif;
-            color: black;
-            padding-top: 14px;
-            padding-left: 10px;
-        }
-
-        .vollabel {
-            font-size: 16px;
-            font-weight: bold;
-            font-family: Arial, sans-serif;
-            padding-top: 12px;
-            padding-left: 10px;
-        }
-
-        .infocontainer {
-            display: grid;
-            grid-template-columns: 360px minmax(0, 1fr);
-            align-items: start;
-            padding: 20px 0;
-            gap: 24px;
-            width: 1024px;
-            max-width: 100%;
-            box-sizing: border-box;
-        }
-
-        .receiver-info { padding-left: 20px; }
-
-        .ft8-panel {
-            min-width: 0;
-            border: 1px solid #c8cdd2;
+        * { box-sizing: border-box; }
+        body { margin: 0; background: var(--bg); color: var(--text); }
+        [hidden] { display: none !important; }
+        h1, h2, p, dl, dd { margin: 0; }
+        button, select, input { font: inherit; }
+        button, select, input[type="text"] {
+            min-height: 34px;
+            border: 1px solid var(--border);
             border-radius: 6px;
-            overflow: hidden;
-            font-family: Arial, sans-serif;
+            color: var(--text);
+            background: var(--control);
         }
-        .ft8-heading {
-            display: flex;
-            align-items: baseline;
-            justify-content: space-between;
-            gap: 12px;
-            padding: 10px 12px;
-            background: #f2f4f6;
-            border-bottom: 1px solid #c8cdd2;
-        }
-        .ft8-heading h2 { margin: 0; font-size: 16px; }
-        #ft8Status { margin-left: 10px; font-size: 12px; color: #44515b; }
-        #ft8Count { font-size: 11px; color: #626d75; white-space: nowrap; }
-        .ft8-scroll { height: 250px; overflow: auto; background: white; }
-        #ft8Table { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.15; }
-        #ft8Table th {
-            position: sticky;
-            top: 0;
-            background: white;
-            color: #444;
-            font-size: 11px;
-            font-family: Arial, sans-serif;
-            z-index: 1;
-        }
-        #ft8Table th, #ft8Table td { padding: 1px 6px; text-align: right; }
-        #ft8Table th:last-child, #ft8Table td:last-child { text-align: left; }
-        #ft8Table td { font-family: Consolas, monospace; white-space: nowrap; }
-        #ft8Table td:last-child { white-space: normal; overflow-wrap: anywhere; }
-        #ft8Table .ft8-country { text-align: left; font-family: Arial, sans-serif; white-space: normal; overflow-wrap: anywhere; max-width: 120px; }
-        #ft8Table tr.ft8-slot-even { background: #f1f6fa; }
-        #ft8Empty { padding: 18px 12px; font-size: 12px; color: #626d75; }
-        @media (max-width: 800px) {
-            .infocontainer { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-            .ft8-heading { flex-wrap: wrap; }
-        }
+        button { padding: 4px 10px; cursor: pointer; font-weight: 600; }
+        button:enabled:hover, select:enabled:hover { border-color: var(--accent); }
+        :is(button, input, select):disabled { opacity: .52; cursor: default; }
+        :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+        input[type="range"], input[type="checkbox"] { accent-color: var(--accent); margin: 0; }
+        input[type="range"] { min-width: 0; width: 100%; }
+        select { width: 100%; padding: 3px 7px; }
+        .console { max-width: 1480px; margin-inline: auto; padding: 20px clamp(12px, 3vw, 38px) 34px; }
+        .panel { min-width: 0; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+        .brand { grid-area: brand; display: flex; align-items: center; gap: 9px; }
+        .brand h1 { font-size: 1.15rem; font-weight: 760; letter-spacing: -.035em; line-height: 1.15; }
+        .brand p { margin-top: 3px; color: var(--muted); font-size: .77rem; }
+        .brand-symbol { flex: none; display: flex; align-items: center; gap: 3px; justify-content: center; width: 34px; height: 34px;
+            border: 1px solid var(--border); border-radius: 9px; color: var(--accent); background: var(--raised); }
+        .brand-symbol span { width: 3px; height: 9px; background: currentColor; border-radius: 4px; }
+        .brand-symbol span:nth-child(2) { height: 18px; }
+        .brand-symbol span:nth-child(3) { height: 13px; }
+        .themes { grid-area: theme; justify-self: end; display: flex; align-items: center; padding: 3px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+        .themes button { min-height: 30px; border-color: transparent; background: transparent; color: var(--muted); }
+        .themes button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
 
-        .help {
-            font-size: 12px;
-            padding-top: 20px;
-            max-width: 400px; /* Sets a width limit for the help section */
-        }
-
-        .infocontent { padding-top: 4px; font-size: 15px; }
-
-        /* General canvas styles */
-        .canvas-container {
-            position: relative;
-            width: 1024px;
-            height: 300px;  /* Set an appropriate height for each canvas container */
-        }
-
-        /* Set the specific height for the second container */
-        .canvas-container.waterfall2 {
-            height: 200px; /* Adjust to the height of the second canvas */
-        }
-
-        /* Ensure that the overlay canvas is stacked on top of the waterfall canvas */
-        canvas {
-            position: absolute;  /* Allows precise positioning inside the container */
-            top: 0;              /* Align at the top */
-            left: 0;             /* Align at the left */
-        }
-
-        /* Overlay canvases should not capture events and be above */
-        #overlayCanvas, #overlayCanvas2 {
-            pointer-events: none;  /* Make the overlay non-interactive */
-            z-index: 10;           /* Ensure it is on top */
-        }
-
-        /* Waterfall canvases should be below the overlay canvases */
-        #waterfallCanvas, #waterfallCanvas2 {
-            z-index: 1;
-        }
-
-        /* Style for the space between canvases, for label elements */
-        .gui-space {
-            text-align: center;
-            color: #333;
-            font-size: 18px;
-            height: 50px; /* Ensure proper space for the xlabelCanvas */
-            display: flex;  /* Use flexbox to align the canvas */
-            justify-content: center;
+        .receiver {
+            display: grid;
+            grid-template-columns: minmax(145px, .9fr) minmax(240px, 1.75fr) minmax(115px, .85fr) minmax(125px, 1fr) auto;
+            grid-template-areas: "brand tune meter session theme";
             align-items: center;
-            position: relative;  /* Position relative for proper stacking */
+            gap: 10px clamp(9px, 1.5vw, 21px);
+            margin-bottom: 14px;
+            padding: 13px 16px;
         }
+        .tuning-readout { grid-area: tune; min-width: 0; }
+        .receiver-meter { grid-area: meter; }
+        .session { grid-area: session; }
+        .frequency-label, .meter-label, .field-label { font-weight: 650; color: var(--muted); font-size: .78rem; }
+        .frequency-label { color: var(--accent); }
+        .frequency-readout { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 8px; font-variant-numeric: tabular-nums; }
+        #freq { font: 650 clamp(2rem, 3.35vw, 3.1rem)/1.16 var(--mono); letter-spacing: -.07em; white-space: nowrap; }
+        .frequency-unit { color: var(--muted); font: 650 .87rem var(--mono); }
+        .frequency-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 17px; }
+        #audioToggle { display: inline-flex; align-items: center; gap: 8px; min-height: 37px;
+            padding: 4px 10px; background: var(--raised); }
+        #audioState { padding: 2px 5px; border-radius: 4px; color: var(--muted);
+            background: var(--control); font: 700 .75rem var(--mono); }
+        #audioToggle[aria-pressed="true"] { border-color: var(--green); }
+        #audioToggle[aria-pressed="true"] #audioState { color: var(--green); }
+        #audioError { display: block; margin-top: 5px; color: var(--danger); font-size: .78rem; }
+        .receiver-meter, .session { display: grid; gap: 5px; min-width: 0; }
+        .meter-title { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 8px; align-items: baseline; }
+        #signalValue { font: 600 .9rem var(--mono); }
+        #signalMeter { appearance: none; display: block; width: 100%; height: 8px; border: 0; border-radius: 4px; background: var(--control); }
+        #signalMeter::-webkit-progress-bar { border-radius: 4px; background: var(--control); }
+        #signalMeter::-webkit-progress-value { border-radius: 4px; background: linear-gradient(90deg, var(--trace), var(--accent)); }
+        #signalMeter::-moz-progress-bar { border-radius: 4px; background: linear-gradient(90deg, var(--trace), var(--accent)); }
+        .meter-scale { display: flex; justify-content: space-between; color: var(--muted); font: .72rem var(--mono); }
+        .session input { width: 100%; padding: 4px 9px; text-transform: uppercase; font-family: var(--mono); }
+        #connectionState { display: flex; align-items: baseline; gap: 6px; color: var(--muted); font-size: .75rem; }
+        #connectionState::before { content: ""; width: 6px; height: 6px; flex: none; align-self: center; border-radius: 50%; background: currentColor; }
+        #connectionState[data-state="live"] { color: var(--green); }
+        #connectionState[data-state="error"], #infocontent[data-state="error"] { color: var(--danger); }
 
-        .gui-space1 {
-            text-align: center;
-            color: #333;
-            font-size: 18px;
-            height: 60px; /* Ensure proper space for the xlabelCanvas */
-            display: flex;  /* Use flexbox to align the canvas */
-            justify-content: center;
-            align-items: center;
-            position: relative;  /* Position relative for proper stacking */
+        .workspace { display: grid; grid-template-columns: minmax(238px, 272px) minmax(0, 1fr); align-items: start; gap: 16px; }
+        .controls, .charts { display: grid; min-width: 0; gap: 13px; }
+        .control-card, .plot-panel { overflow: hidden; }
+        .card-head, .plot-head, .ft8-heading, .adsb-head {
+            display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+            gap: 4px 12px; min-height: 42px; padding: 9px 13px; border-bottom: 1px solid var(--separator);
+            background: var(--raised);
         }
+        .card-head, .plot-head h2, .ft8-heading h2, .adsb-head h2 { font-size: .92rem; font-weight: 730; }
+        summary.card-head { cursor: pointer; list-style: none; }
+        summary.card-head::-webkit-details-marker { display: none; }
+        summary.card-head::after { content: "+"; color: var(--muted); font: 1.1rem var(--mono); }
+        details[open] summary.card-head::after { content: "−"; }
+        details:not([open]) summary.card-head { border-bottom: 0; }
+        .control-card-content { display: grid; gap: 12px; padding: 12px; }
+        .pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 9px; }
+        .field { display: grid; gap: 4px; }
+        .toggle-row { display: flex; align-items: center; justify-content: space-between; min-height: 28px; font-weight: 630; cursor: pointer; gap: 8px; }
+        .toggle-row input { appearance: none; inline-size: 31px; block-size: 18px; border: 1px solid var(--border); border-radius: 10px;
+            background: var(--control); position: relative; cursor: pointer; flex: none; }
+        .toggle-row input::after { content: ""; position: absolute; inset: 3px auto auto 3px; width: 10px; height: 10px;
+            border-radius: 50%; background: var(--muted); }
+        .toggle-row input:checked { border-color: var(--accent); background: var(--accent-soft); }
+        .toggle-row input:checked::after { left: 16px; background: var(--accent); }
+        .slider-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; align-items: baseline; }
+        .slider-row input { grid-column: 1/-1; }
+        .slider-row output { color: var(--text); font: .78rem var(--mono); }
+        .nr-controls { display: grid; gap: 6px; padding-top: 7px; border-top: 1px solid var(--separator); }
+        #nrStatus, #fmSquelchStatus, #receiverPresetStatus { color: var(--muted); font-size: .75rem; }
+        .receiver-presets { display: grid; gap: 5px; }
+        .receiver-preset { display: grid; grid-template-columns: 23px minmax(0, 1fr) minmax(0, 1fr); gap: 7px; align-items: center; }
+        .receiver-preset span { color: var(--accent); text-align: center; font: 600 .78rem var(--mono); }
+        .receiver-preset button { min-height: 29px; padding: 3px 4px; font-size: .76rem; }
+        #receiverPresetStatus:empty { display: none; }
+        .key-help { color: var(--muted); font-size: .8rem; }
+        .key-help li + li { margin-top: 4px; }
+        .key-help ul { margin: 4px 0 2px; padding-inline-start: 17px; }
+        #infocontent { overflow-wrap: anywhere; }
 
-        /* Ensure xlabelCanvas is centered and behaves like a block element */
-        #xlabelCanvas {
-            display: block;
-        }
+        .plot-head { justify-content: flex-start; }
+        .plot-head output { margin-left: auto; color: var(--accent); font: 600 .78rem var(--mono); white-space: nowrap; }
+        .plot-head .description, #ft8Status, #ft8Count, #ft8Empty { color: var(--muted); font-size: .78rem; }
+        .spectrum { display: block; width: 100%; height: clamp(105px, 16vh, 148px); background: var(--plot); }
+        .canvas-container { position: relative; height: 85px; background: var(--waterfall-bg); }
+        .canvas-container.waterfall2 { height: 59px; }
+        .canvas-container canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+        #overlayCanvas, #overlayCanvas2 { pointer-events: none; }
+        #waterfallCanvas, #waterfallCanvas2, .spectrum { cursor: crosshair; touch-action: pan-y; }
+        .frequency-axis { background: var(--plot); border-top: 1px solid var(--plot-grid); }
+        .frequency-axis canvas { display: block; width: 100%; height: 27px; }
+        .waterfall-legend { display: flex; align-items: center; gap: 5px; margin-left: 3px; color: var(--muted); font-size: .68rem; }
+        .waterfall-legend span { width: 46px; height: 5px; border-radius: 3px;
+            background: linear-gradient(90deg,#192c58,#266394,#3d9f9b,#e3bb6c,#fff0bf); }
+        .ft8-panel, #adsbContainer { overflow: hidden; }
+        .ft8-heading > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 9px; }
+        .ft8-scroll { max-height: 255px; min-height: 110px; overflow: auto; }
+        #ft8Table, #adsbTable { width: 100%; border-collapse: collapse; font-size: .8rem; }
+        #ft8Table th, #adsbTable th { position: sticky; top: 0; background: var(--panel); color: var(--muted); }
+        #ft8Table :is(td, th), #adsbTable :is(td, th) { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--separator); }
+        #ft8Table :is(td, th):last-child { text-align: left; }
+        #ft8Table td, #adsbTable td { font-family: var(--mono); white-space: nowrap; }
+        #ft8Table td:last-child, #ft8Table td.ft8-country { white-space: normal; }
+        #ft8Table tr.ft8-slot-even, #adsbTable tr.aircraft-stale { background: var(--raised); }
+        #adsbTable tr.aircraft-new { background: var(--accent-soft); }
+        #ft8Empty { padding: 16px 12px; }
+        #adsbTable th[data-col] { cursor: pointer; user-select: none; white-space: nowrap; }
+        #adsbTable th.sort-asc::after { content: " ↑"; color: var(--accent); }
+        #adsbTable th.sort-desc::after { content: " ↓"; color: var(--accent); }
+        .adsb-options { display: flex; flex-wrap: wrap; gap: 6px 12px; color: var(--muted); font-size: .79rem; }
+        .adsb-options label { display: inline-flex; align-items: center; gap: 5px; }
+        #adsbMap { width: 100%; height: min(70vh, 620px); border-top: 1px solid var(--border); }
 
-        /* Style for the header section to place GUI elements and title */
-        .header {
-            width: 1024px;
-            padding: 10px 0; /* Add some padding above and below */
-            text-align: left;
-            font-size: 24px;
-            color: #333;
+        @media (max-width: 1100px) {
+            #freq { font-size: clamp(1.75rem, 2.8vw, 2.75rem); }
+            .frequency-controls { gap: 6px 10px; }
         }
-
-        .gui-elements {
-            display: flex;
-            justify-content: left; /* Center the GUI elements */
-            margin-top: 10px; /* Add some space between the title and GUI elements */
+        @media (min-width: 851px) and (min-height: 550px) {
+            .console { height: 100dvh; display: flex; flex-direction: column; }
+            .receiver { flex: none; }
+            .workspace { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+            .controls, .charts { min-height: 0; }
+            .controls { grid-auto-rows: max-content; align-content: start; overflow: auto; scrollbar-width: thin; }
+            #audioSettings:has(#fmSquelch:not([hidden])) .nr-controls:not(#fmSquelch) { display: none; }
+            .charts { display: flex; flex-direction: column; }
+            .plot-panel { flex: none; }
+            .ft8-panel, #adsbContainer { min-height: 0; flex: 1; display: flex; flex-direction: column; }
+            .ft8-scroll { flex: 1; min-height: 0; max-height: none; }
+            .ft8-heading, .adsb-head { flex: none; }
+            #adsbMap { flex: 0 0 48%; min-height: 115px; }
         }
-
-        /* Style for individual GUI elements like buttons or inputs */
-        .gui-elements button, .gui-elements input {
-            margin: 0 10px; /* Add horizontal space between elements */
-            font-size: 12px;
+        @media (min-width: 851px) and (max-height: 820px) {
+            .console { padding-block: 10px 8px; }
+            .receiver { margin-bottom: 9px; padding: 7px 13px; }
+            .session { gap: 2px; }
+            .session input { min-height: 29px; }
+            .workspace { gap: 10px; }
+            .controls, .charts { gap: 8px; }
+            .card-head, .plot-head, .ft8-heading, .adsb-head { min-height: 30px; padding: 4px 10px; }
+            .control-card-content { gap: 6px; padding: 7px 8px; }
+            .field, .slider-row { gap: 2px; }
+            .controls select { min-height: 29px; }
+            .toggle-row { min-height: 24px; }
+            .nr-controls { gap: 4px; padding-top: 5px; }
+            .receiver-presets { gap: 4px; }
+            .receiver-preset button { min-height: 25px; padding-block: 2px; }
+            .spectrum { height: clamp(62px, 11.8vh, 110px); }
+            .frequency-axis canvas { height: 20px; }
+            #ft8Empty { padding: 8px 10px; }
+            #ft8Table :is(td, th) { padding-block: 3px; }
         }
-
-        /* Modern ComboBox styling */
-        select {
-            padding: 10px;
-            font-size: 16px;
-            font-family: Arial, sans-serif;
-            border: none; /* Remove default border */
-            border-radius: 8px; /* Softer, rounded corners */
-            background: linear-gradient(145deg, #ffffff, #f0f0f0); /* Light gradient */
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2), inset 0 0 0 2px rgba(60, 60, 60, 0.6); /* Darker border and shadow */
-            transition: box-shadow 0.3s, background-color 0.3s; /* Smooth transition for hover effects */
-            color: #333;
-            outline: none;
-            cursor: pointer;
-            appearance: none; /* Remove default dropdown arrow */
-            position: relative;
-            padding-right: 30px; /* Space for custom arrow */
+        @media (min-width: 851px) and (max-height: 680px) {
+            .controls { gap: 7px; }
+            .card-head { min-height: 27px; padding-block: 3px; }
+            .control-card-content { padding-block: 5px; }
+            .receiver-presets { gap: 3px; }
+            .receiver-preset button { min-height: 23px; }
+            .spectrum { height: clamp(60px, 11vh, 76px); }
         }
-
-        /* ComboBox hover effect with darker shadow */
-        select:hover {
-            background: linear-gradient(145deg, #f0f0f0, #e0e0e0);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3), inset 0 0 0 2px rgba(60, 60, 60, 0.7); /* Darker inner shadow on hover */
+        @media (max-width: 850px) {
+            .workspace { grid-template-columns: minmax(190px, 220px) minmax(0, 1fr); gap: 11px; }
+            .receiver {
+                grid-template-columns: minmax(0, 1fr) minmax(116px, .65fr);
+                grid-template-areas: "brand theme" "tune meter" "session session";
+                padding: 11px 13px;
+                gap: 9px 12px;
+            }
+            .session { grid-template-columns: auto minmax(85px, 155px) minmax(0, 1fr); align-items: center; }
         }
-
-        /* ComboBox focus effect with more contrast */
-        select:focus {
-            background: #f5f5f5; /* Subtle change on focus */
-            box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.4), inset 0 0 0 2px rgba(60, 60, 60, 0.8); /* Soft blue outline with dark inner border */
+        @media (max-width: 640px) {
+            .console { padding-top: 13px; }
+            .workspace { grid-template-columns: minmax(0, 1fr); }
+            .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+            .receive-card, .control-card[open] { grid-column: 1 / -1; }
+            .controls .info-card { grid-column: 1 / -1; }
+            .canvas-container { height: 64px; }
+            .canvas-container.waterfall2 { height: 48px; }
+            #ft8Table { min-width: 445px; }
         }
-
-
-        /* Add a custom arrow for the ComboBox */
-        select::after {
-            content: '▼'; /* Unicode character for dropdown arrow */
-            font-size: 12px;
-            color: #888;
-            position: absolute;
-            right: 10px;
-            top: 50%;
-            transform: translateY(-50%);
-            pointer-events: none; /* Arrow doesn't interfere with ComboBox interactions */
+        @media (max-width: 370px) {
+            .receiver { grid-template-columns: minmax(0, 1fr) auto;
+                grid-template-areas: "brand theme" "tune tune" "meter meter" "session session"; }
+            .session { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+            #connectionState { grid-column: 1 / -1; }
         }
-
-        .bar-container {
-            width: 15px;
-            height: 40px;
-            background-color: #ddd;
-            border-radius: 20px;
-            overflow: hidden;
-            position: relative;
-            box-shadow: 0px 3px 6px rgba(0, 0, 0, 0.2);
-        }
-
-        .bar-fill {
-            width: 100%;
-            height: 0%;
-            background: linear-gradient(180deg, #ff0000, #ffff00);
-            transition: height 0.5s ease-in-out;
-            position: absolute;
-            bottom: 0;
-        }
-
-        /* Input field styling */
-        .login-input {
-            padding: 4px;
-            margin: 4px 0;
-            font-size: 16px;
-            font-weight: bold;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            outline: none;
-            margin-left: 5px;
-            width: 20%;
-        }
-
-        /* Add focus effect on input */
-        .login-input:focus {
-            border-color: #4a90e2;
-            box-shadow: 0 0 5px rgba(74, 144, 226, 0.4);
-        }
-        .login-input:invalid {
-            background-color: red;
-        }
-
-        /* Hamburger menu icon styling */
-        .menu-icon {
-            display: flex;
-            flex-direction: column;
-            cursor: pointer;
-            width: 25px;       /* Breite der Linien */
-            height: 18px;      /* Gesamthöhe reduzieren */
-            margin-top: 12px;
-        }
-
-        .menu-icon div {
-            width: 100%;               /* Volle Breite für alle Striche */
-            height: 3px;               /* Höhe der einzelnen Linien */
-            background-color: #333;    /* Farbe der Linien */
-        }
-
-        /* Individuelle Abstände für die oberen und unteren Linien */
-        .menu-icon div:first-child {
-            margin-bottom: 4px;  /* Abstand unter der ersten Linie */
-        }
-
-        .menu-icon div:last-child {
-            margin-top: 4px;     /* Abstand über der letzten Linie */
-        }
-
-        /* Positioning context for menu and dropdown */
-        .menu-container {
-            position: relative; /* Makes the dropdown position relative to this container */
-            display: inline-block; /* Ensures it doesn’t take up full width */
-            margin-left: 30px;
-        }
-
-        /* Position the menu absolutely to prevent layout shifts */
-        .dropdown-menu {
-            display: none; /* Initially hidden */
-            position: absolute;
-            top: 100%; /* Position just below the hamburger icon */
-            right: 0; /* Align to the right edge of the container */
-            background-color: #fff;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 10px;
-            z-index: 100; /* Keep it above other content */
-            width: max-content; /* Automatically adjust to fit content */
-            min-width: 200px; /* Optional: minimum width to avoid being too narrow */
-        }
-
-        .dropdown-menu .menu-item:last-child {
-            padding-bottom: 10px; /* Add space below the last menu item */
-        }
-
-        /* Styling for each menu item (label + select) */
-        .menu-item {
-            display: flex;
-            align-items: center;
-            margin: 8px 0;
-            font-size: 16px;
-            font-weight: bold;
-            font-family: Arial, sans-serif;
-            gap: 20px;
-        }
-
-        /* Style for the OK button */
-        .ok-button {
-            margin-top: 10px;
-            width: 90%;
-            padding: 10px;
-            font-size: 16px;
-            font-weight: bold;
-            color: white;
-            background-color: #4CAF50;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-
-        .ok-button:hover {
-            background-color: #45a049; /* Darken on hover */
-        }
-
-        th[data-col] {
-            cursor: pointer;
-        }
-        th[data-col]:hover {
-            background: #f0f0f0;
-        }
-        #adsbTable th[data-col] {
-            cursor: pointer;
-            position: relative;
-            user-select: none;
-            padding-right: 18px; /* Platz für Pfeil */
-        }
-
-        #adsbTable th[data-col]::after {
-            content: "";
-            position: absolute;
-            right: 6px;
-            top: 50%;
-            transform: translateY(-50%);
-            font-size: 10px;
-            color: #666;
-        }
-
-        /* aufsteigend */
-        #adsbTable th.sort-asc::after {
-            content: "▲";
-            font-size: 14px;
-            color: #d00000;       /* kräftiges Rot */
-            font-weight: bold;
-        }
-
-        /* absteigend */
-        #adsbTable th.sort-desc::after {
-            content: "▼";
-            font-size: 14px;
-            color: #d00000;
-            font-weight: bold;
-        }
-        #adsbTable th.sort-asc,
-        #adsbTable th.sort-desc {
-            background: #fff4f4;
-        }
-
-        .receiver-presets {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 5px 10px;
-            padding: 4px 0;
-            font: 12px Arial, sans-serif;
-        }
-        .receiver-preset {
-            display: inline-flex;
-            align-items: center;
-            gap: 3px;
-        }
-        .receiver-preset span { font-weight: bold; }
-        .receiver-preset button {
-            min-height: 24px;
-            padding: 2px 5px;
-            font: inherit;
-        }
-        #receiverPresetStatus { color: #44515b; }
-        .nr-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
-            font: 14px Arial, sans-serif; padding: 8px 0; }
-        .nr-controls label { white-space: nowrap; }
-        .nr-controls input[type="range"] { width: 120px; margin: 0; }
-        .nr-controls output { min-width: 34px; }
-        #nrStatus { font-size: 12px; color: #44515b; }
-        .fm-squelch[hidden] { display: none; }
-        #fmSquelchStatus { font-size: 12px; color: #44515b; }
-</style>
+    </style>
 </head>
 <body>
 
-    <!-- Header section with title and GUI elements -->
-<div class="header">
-    <div class="titlecontainer">
-        <div class="title">DB0SL Web SDR Receiver</div>
-        <div class="title1">SDRplay RSP1A, by DJ0ABR</div>
-        <input type="text" class="login-input" name="username" style="text-transform: uppercase;" id="username" placeholder="Rufzeichen" required minlength="3" maxlength="32" title="3–32 Zeichen: Buchstaben, Ziffern und /">
-        <input type="password" class="login-input" name="password" id="password" placeholder="Passwort" required style="visibility: hidden;">    
-    </div>
-    <div class="gui-elements">
-        <div class="freq" id="freq">Frequency</div>
-
-        <div class="bar-container">
-            <div class="bar-fill" id="barFill"></div>
-        </div>
-
-        <label class="audiolabel" for="audioCheckbox">Audio ON/off</label>
-        <input type="checkbox" id="audioCheckbox">
-
-        <label class="bandlabel" for="bandBox">Band:</label>
-        <select id="bandBox" disabled onchange="updateBand()">
-            <option value="630">630m</option>
-            <option value="160">160m</option>
-            <option value="80">80m</option>
-            <option value="60">60m</option>
-            <option value="40">40m</option>
-            <option value="30">30m</option>
-            <option value="20">20m</option>
-            <option value="17">17m</option>
-            <option value="15">15m</option>
-            <option value="12">12m</option>
-            <option value="11">11m-CB</option>
-            <option value="280">10m 28 MHz</option>
-            <option value="285">10m 28,5 MHz</option>
-            <option value="290">10m 29 MHz</option>
-            <option value="6">6m</option>
-            <option value="4">4m</option>
-            <option value="144">144,0</option>
-            <option value="145">144,5</option>
-            <option value="146">145,0</option>
-            <option value="147">145,5</option>
-            <option value="70">431,5</option>
-            <option value="438">438,8</option>
-            <option value="446">PMR446</option>
-            <option value="1090">ADS-B</option>
-        </select>
-
-        <label class="bandlabel" for="modeBox">Mode:</label>
-        <select id="modeBox" onchange="updateMode()">
-            <option value="1">USB</option>
-            <option value="0">LSB</option>
-            <option value="2">FM</option>
-            <option value="3">AM</option>
-        </select>
-
-        <label for="volumeControl" class="vollabel">Lautstärke:</label>
-        <input type="range" id="volumeControl" min="0" max="1" step="0.01" value="0.5">
-
-        <!-- Container for Hamburger icon and dropdown menu -->
-        <div class="menu-container">
-            <div class="menu-icon" onclick="toggleMenu()">
-                <div></div>
-                <div></div>
-                <div></div>
+<main class="console">
+    <section class="receiver panel" aria-label="Empfang">
+        <div class="brand">
+            <div class="brand-symbol" aria-hidden="true"><span></span><span></span><span></span></div>
+            <div>
+                <h1>DB0SL WebSDR</h1>
+                <p>SDRplay RSP1A · DJ0ABR</p>
             </div>
-        
-            <!-- Dropdown Menu -->
-            <div id="dropdownMenu" class="dropdown-menu">
-                <div class="menu-item">
-                    <label for="nffilter">NF Filter:</label>
-                    <select id="nffilter" onchange="updateFilter()">
+        </div>
+        <div class="tuning-readout">
+            <div class="frequency-label" id="frequencyLabel">Empfangsfrequenz</div>
+            <div class="frequency-controls">
+                <div class="frequency-readout">
+                    <output id="freq" aria-labelledby="frequencyLabel" aria-live="off">—</output>
+                    <span class="frequency-unit">MHz</span>
+                </div>
+                <button type="button" id="audioToggle" aria-label="Audio" aria-pressed="false">
+                    Audio <span id="audioState" aria-hidden="true">OFF</span>
+                </button>
+            </div>
+            <span id="audioError" role="status" hidden>Audio konnte nicht gestartet werden.</span>
+        </div>
+        <div class="receiver-meter">
+            <div class="meter-title">
+                <label class="meter-label" for="signalMeter">Signalpegel</label>
+                <output id="signalValue" aria-live="off">— dBm</output>
+            </div>
+            <progress id="signalMeter" max="50" value="0"></progress>
+            <div class="meter-scale" aria-hidden="true"><span>−130</span><span>−105</span><span>−80</span></div>
+        </div>
+        <div class="session">
+            <label class="field-label" for="username">Rufzeichen</label>
+            <input type="text" name="username" id="username" placeholder="z. B. SWL" minlength="3" maxlength="32"
+                title="3–32 Zeichen: Buchstaben, Ziffern und /" autocomplete="off" spellcheck="false">
+            <input type="hidden" id="password">
+            <output id="connectionState" data-state="idle" role="status">Rufzeichen eingeben</output>
+        </div>
+        <div class="themes" role="group" aria-label="Farbschema">
+            <button type="button" data-set-theme="light" aria-pressed="false">Hell</button>
+            <button type="button" data-set-theme="dark" aria-pressed="false">Dunkel</button>
+        </div>
+    </section>
+
+    <div class="workspace">
+        <aside class="controls" aria-label="Empfänger bedienen">
+            <section class="panel control-card receive-card" aria-labelledby="tuningTitle">
+                <h2 class="card-head" id="tuningTitle">Abstimmung</h2>
+                <div class="control-card-content pair">
+                    <label class="field" for="bandBox"><span class="field-label">Band</span>
+                        <select id="bandBox" disabled onchange="updateBand()">
+                        <option value="630">630m</option>
+                        <option value="160">160m</option>
+                        <option value="80">80m</option>
+                        <option value="60">60m</option>
+                        <option value="40">40m</option>
+                        <option value="30">30m</option>
+                        <option value="20">20m</option>
+                        <option value="17">17m</option>
+                        <option value="15">15m</option>
+                        <option value="12">12m</option>
+                        <option value="11">11m-CB</option>
+                        <option value="280">10m 28 MHz</option>
+                        <option value="285">10m 28,5 MHz</option>
+                        <option value="290">10m 29 MHz</option>
+                        <option value="6">6m</option>
+                        <option value="4">4m</option>
+                        <option value="144">144,0</option>
+                        <option value="145">144,5</option>
+                        <option value="146">145,0</option>
+                        <option value="147">145,5</option>
+                        <option value="70">431,5</option>
+                        <option value="438">438,8</option>
+                        <option value="446">PMR446</option>
+                        <option value="1090">ADS-B</option>
+                        </select>
+                    </label>
+                    <label class="field" for="modeBox"><span class="field-label">Betriebsart</span>
+                        <select id="modeBox" onchange="updateMode()">
+                        <option value="1">USB</option>
+                        <option value="0">LSB</option>
+                        <option value="2">FM</option>
+                        <option value="3">AM</option>
+                        </select>
+                    </label>
+                </div>
+            </section>
+
+            <details class="panel control-card" id="audioSettings" open>
+                <summary class="card-head">Audio &amp; Filter</summary>
+                <div class="control-card-content">
+                    <label class="slider-row" for="volumeControl">
+                        <span class="field-label">Lautstärke</span><output id="volumeValue" for="volumeControl">50 %</output>
+                        <input type="range" id="volumeControl" min="0" max="1" step="0.01" value="0.5">
+                    </label>
+                    <label class="field" for="nffilter"><span class="field-label">NF-Filter</span>
+                        <select id="nffilter" onchange="updateFilter()">
                         <option value="500">500 Hz</option>
                         <option value="1800">1.8 kHz</option>
                         <option value="2700">2.4 kHz</option>
                         <option value="3600" selected>3.6 kHz</option>
-                    </select>
+                        </select>
+                    </label>
+
+                    <div class="nr-controls" role="group" aria-label="Rauschunterdrückung">
+                        <label class="toggle-row" for="nrEnabled" title="Rauschunterdrückung für USB, LSB und AM; bei FM pausiert">
+                            Noise Reduktion <input type="checkbox" id="nrEnabled" disabled>
+                        </label>
+                        <label class="slider-row" for="nrStrength">
+                            <span class="field-label">Stärke</span><output id="nrStrengthValue" for="nrStrength">60 %</output>
+                            <input type="range" id="nrStrength" min="1" max="100" step="1" value="60" disabled>
+                        </label>
+                        <span id="nrStatus" role="status">Nicht verbunden</span>
+                    </div>
+
+                    <div class="nr-controls" id="fmSquelch" role="group" aria-label="FM-Rauschsperre" hidden>
+                        <label class="slider-row" for="fmSquelchLevel">
+                            <span class="field-label">FM-Rauschsperre</span><output id="fmSquelchValue" for="fmSquelchLevel">0</output>
+                            <input type="range" id="fmSquelchLevel" min="0" max="100" step="1" value="0"
+                                title="0 = Aus. Höhere Werte öffnen bei weniger Rauschen.">
+                        </label>
+                        <span id="fmSquelchStatus" role="status">Aus</span>
+                    </div>
                 </div>
-                
-                <!-- OK Button -->
-                <button onclick="confirmSettings()" class="ok-button">OK</button>
-            </div>
-        </div>        
-    </div>
-</div>
+            </details>
 
-<div class="receiver-presets" id="receiverPresets" role="group" aria-label="Frequenzspeicher">
-    <span id="receiverPresetStatus" role="status"></span>
-</div>
+            <details class="panel control-card" id="memorySettings" open>
+                <summary class="card-head">Frequenzspeicher</summary>
+                <div class="control-card-content receiver-presets" id="receiverPresets" role="group" aria-label="Frequenzspeicher">
+                    <span id="receiverPresetStatus" role="status"></span>
+                </div>
+            </details>
 
-<div class="nr-controls" role="group" aria-label="Rauschunterdrückung">
-    <label title="Rauschunterdrückung für USB, LSB und AM; bei FM pausiert">
-        <input type="checkbox" id="nrEnabled" disabled> Noise Reduktion</label>
-    <label for="nrStrength">Stärke:</label>
-    <input type="range" id="nrStrength" min="1" max="100" step="1" value="60" disabled>
-    <output id="nrStrengthValue" for="nrStrength">60 %</output>
-    <span id="nrStatus" role="status" aria-live="polite">Nicht verbunden</span>
-</div>
+            <details class="panel control-card info-card">
+                <summary class="card-head">Abstimmhilfe &amp; Hörer</summary>
+                <div class="control-card-content key-help">
+                    <p>Klick oder Tipp ins Spektrum oder den Wasserfall stimmt den Empfänger ab.</p>
+                    <ul>
+                        <li>Bandübersicht · Mausrad 100 Hz, mit Shift 1 kHz, mit Shift und Alt 12,5 kHz</li>
+                        <li>Zoom · Mausrad 10 Hz</li>
+                        <li>Bandwechsel bei einem angemeldeten Hörer</li>
+                    </ul>
+                    <p id="infocontent"></p>
+                </div>
+            </details>
+        </aside>
 
-<div class="nr-controls fm-squelch" id="fmSquelch" role="group" aria-label="FM-Rauschsperre" hidden>
-    <label for="fmSquelchLevel">FM-Rauschsperre:</label>
-    <input type="range" id="fmSquelchLevel" min="0" max="100" step="1" value="0" title="0 = Aus. Höhere Werte öffnen bei weniger Rauschen.">
-    <output id="fmSquelchValue" for="fmSquelchLevel">0</output>
-    <span id="fmSquelchStatus" role="status">Aus</span>
-</div>
+        <div class="charts">
+            <section class="panel plot-panel" aria-labelledby="bandTitle">
+                <header class="plot-head">
+                    <h2 id="bandTitle">Bandübersicht</h2>
+                    <div class="waterfall-legend" title="Wasserfall von schwach bis stark"><span aria-hidden="true"></span> dBm</div>
+                    <output id="bandSpan" aria-live="off">—</output>
+                </header>
+                <canvas id="bandSpectrum" class="spectrum" aria-label="Live-Spektrum des gewählten Bands"></canvas>
+                <div class="canvas-container">
+                    <canvas id="waterfallCanvas" width="1024" height="85" aria-label="Wasserfall des gewählten Bands"></canvas>
+                    <canvas id="overlayCanvas" width="1024" height="85" aria-hidden="true"></canvas>
+                </div>
+                <div class="frequency-axis"><canvas id="label480Canvas" width="1024" height="27" aria-hidden="true"></canvas></div>
+            </section>
 
-<div class="gui-space">
-    <canvas id="label480Canvas" width="1024" height="50"></canvas>
-</div>
+            <section class="panel plot-panel" id="zoomPanel" aria-labelledby="zoomTitle">
+                <header class="plot-head">
+                    <h2 id="zoomTitle">Zoom</h2>
+                    <span class="description">±24 kHz um die Empfangsfrequenz</span>
+                    <output id="zoomSpan" aria-live="off">—</output>
+                </header>
+                <canvas id="zoomSpectrum" class="spectrum" aria-label="Live-Spektrum um die Empfangsfrequenz"></canvas>
+                <div class="canvas-container waterfall2">
+                    <canvas id="waterfallCanvas2" width="1024" height="59" aria-label="Wasserfall um die Empfangsfrequenz"></canvas>
+                    <canvas id="overlayCanvas2" width="1024" height="59" aria-hidden="true"></canvas>
+                </div>
+                <div class="frequency-axis"><canvas id="xlabelCanvas" width="1024" height="27" aria-hidden="true"></canvas></div>
+            </section>
 
-<!-- First set of canvas elements -->
-<div class="canvas-container">
-    <canvas id="waterfallCanvas" width="1024" height="300"></canvas>
-    <canvas id="overlayCanvas" width="1024" height="300"></canvas>
-</div>
+            <section class="panel ft8-panel" id="ft8Panel" aria-labelledby="ft8Title">
+                <div class="ft8-heading">
+                    <div><h2 id="ft8Title" style="display:inline;">FT8</h2><span id="ft8Status">Verbinde …</span></div>
+                    <span id="ft8Count">0 Meldungen</span>
+                </div>
+                <div class="ft8-scroll" id="ft8Scroll" tabindex="0" aria-label="FT8-Meldungen">
+                    <table id="ft8Table">
+                        <thead><tr><th scope="col">UTC</th><th scope="col">MHz</th><th scope="col">dB</th><th scope="col">DT</th><th scope="col" class="ft8-country" title="Land der sendenden Station">Land</th><th scope="col">Nachricht</th></tr></thead>
+                        <tbody id="ft8Rows"></tbody>
+                    </table>
+                    <div id="ft8Empty">Warte auf einen vollständigen FT8-Slot …</div>
+                </div>
+            </section>
 
-<!-- Space for labels -->
-<div class="gui-space1" id="lowerWaterfallLabels">
-    <canvas id="xlabelCanvas" width="1024" height="60"></canvas>
-</div>
-
-<!-- Second set of canvas elements -->
-<div class="canvas-container waterfall2" id="lowerWaterfall">
-    <canvas id="waterfallCanvas2" width="1024" height="200"></canvas>
-    <canvas id="overlayCanvas2" width="1024" height="200"></canvas>
-</div>
-
-<div class="infocontainer">
-    <div class="receiver-info">
-        <p class="help" style="color: red; font-weight: bold;">Bandumschaltung nur möglich bei EINEM eingeloggten Benutzer!</p>
-        <strong>Tuning im oberen Wasserfall:</strong><br>
-        Mausklick ... grobe Frequenzwahl<br>
-        Feinabstimmung:<br>
-        100 Hz ... Mausrad<br>
-        1 kHz .... Mausrad + Shift Taste<br>
-        12,5 kHz . Mausrad + Shift + Alt Taste<br>
-        <br>
-        <strong>Tuning im unteren Wasserfall:</strong><br>
-        Mausklick ... USB link und LSB rechts vom Signal klicken<br>
-        10 Hz ... Mausrad
-        <div class="infocontent">
-            <p id="infocontent"></p>
+            <section class="panel" id="adsbContainer" hidden aria-labelledby="aircraftTitle">
+                <header class="adsb-head">
+                    <h2 id="aircraftTitle">ADS-B Flugzeuge</h2>
+                    <div class="adsb-options">
+                        <label><input type="checkbox" id="metricCheckbox"> metrisch</label>
+                        <label><input type="checkbox" id="mapCheckbox"> Karte</label>
+                        <label><input type="checkbox" id="autozoomCheckbox"> Autozoom</label>
+                    </div>
+                </header>
+                <div class="ft8-scroll">
+                    <table id="adsbTable">
+                      <thead>
+                        <tr>
+                            <th data-col="hex">ICAO</th>
+                            <th data-col="flight">Flight</th>
+                            <th data-col="alt" id="adsbAltHeader">Alt (ft)</th>
+                            <th data-col="gs"  id="adsbGsHeader" >GS (kt)</th>
+                            <th data-col="track">Track (°)</th>
+                            <th data-col="lat">Lat</th>
+                            <th data-col="lon">Lon</th>
+                            <th data-col="dist" id="adsbDistHeader">Dist (km)</th>
+                            <th data-col="rssi">RSSI (dB)</th>
+                            <th data-col="seen">Seen (s)</th>
+                        </tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                </div>
+                <div id="adsbMap" style="display: none"></div>
+            </section>
         </div>
     </div>
-
-    <section class="ft8-panel" aria-labelledby="ft8Title">
-        <div class="ft8-heading">
-            <div><h2 id="ft8Title" style="display:inline;">FT8</h2><span id="ft8Status">Verbinde …</span></div>
-            <span id="ft8Count">0 Meldungen</span>
-        </div>
-        <div class="ft8-scroll" id="ft8Scroll" tabindex="0" aria-label="FT8-Meldungen">
-            <table id="ft8Table">
-                <thead><tr><th scope="col">UTC</th><th scope="col">MHz</th><th scope="col">dB</th><th scope="col">DT</th><th scope="col" class="ft8-country" title="Land der sendenden Station">Land</th><th scope="col">Nachricht</th></tr></thead>
-                <tbody id="ft8Rows"></tbody>
-            </table>
-            <div id="ft8Empty">Warte auf einen vollständigen FT8-Slot …</div>
-        </div>
-    </section>
-</div>
-
-<div id="adsbContainer" style="display:none; max-width:1024px; padding:20px;">
-  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
-  <div style="font-family:Arial,sans-serif; font-weight:bold; font-size:18px;">
-    ADS-B Flugzeuge
-  </div>
-
-  <div style="display:flex; align-items:center; gap:12px; font-family:Arial,sans-serif; font-size:12px; color:#666;">
-    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;">
-      <input type="checkbox" id="metricCheckbox">
-      metrisch (m / km/h)
-    </label>
-    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;">
-        <input type="checkbox" id="mapCheckbox">
-        Map
-    </label>
-    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;">
-        <input type="checkbox" id="autozoomCheckbox">
-        Autozoom
-    </label>
-    <span>(Live)</span>
-  </div>
-</div>
-
-
-  <div style="overflow:auto; margin-top:10px;">
-    <table id="adsbTable" style="width:100%; border-collapse:collapse; font-family:Arial,sans-serif; font-size:13px;">
-      <thead>
-        <tr>
-            <th data-col="hex">ICAO</th>
-            <th data-col="flight">Flight</th>
-            <th data-col="alt" id="adsbAltHeader" style="text-align:right;">Alt (ft)</th>
-            <th data-col="gs"  id="adsbGsHeader"  style="text-align:right;">GS (kt)</th>
-            <th data-col="track" style="text-align:right;">Track (°)</th>
-            <th data-col="lat" style="text-align:right;">Lat</th>
-            <th data-col="lon" style="text-align:right;">Lon</th>
-            <th data-col="dist" id="adsbDistHeader" style="text-align:right;">Dist (km)</th>
-            <th data-col="rssi" style="text-align:right;">RSSI (dB)</th>
-            <th data-col="seen" style="text-align:right;">Seen (s)</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </div>
-  <div id="adsbMap" style="display:none; margin-top:10px; width:100%; height:700px; border:1px solid #ccc; border-radius:8px;"></div>
-</div>
-
+</main>
 
 <script src="ft8-country-data.js"></script>
 <script src="ft8-countries.js"></script>
@@ -674,39 +532,31 @@
     let usernumber = 0;
     let adsbSortCol = null;   // z.B. "alt", "gs", "dist", ...
     let adsbSortDir = 1;      // 1 = aufsteigend, -1 = absteigend
-    let upperWfHeightCurrent = 300;  // Startwert wie im HTML
+    let showingAdsbWaterfall = false;
     const adsbTrails = new Map();   // hex -> { line: L.Polyline, points: [[lat,lon],...], lastAddUnix }
     const TRAIL_MAX_POINTS = 80;    // Länge der Spur (Punkte)
     const TRAIL_MIN_DIST_M = 150;   // nur neue Punkte, wenn mind. so weit weg
     const TRAIL_MAX_AGE_S = 120;    // Trails löschen, wenn Flieger so lange nicht mehr gesehen
-    const WF_HEIGHT_NORMAL = 300;
-    const WF_HEIGHT_ADSB   = 150;
 
     // Get canvas contexts
     const label480Canvas = document.getElementById('label480Canvas');
-    const label480Ctx = label480Canvas.getContext('2d');
 
     const waterfallCanvas = document.getElementById('waterfallCanvas');
-    const waterfallCtx = waterfallCanvas.getContext('2d', { willReadFrequently: true });  // Enable the willReadFrequently flag
+    const waterfallCtx = waterfallCanvas.getContext("2d");
     
     const overlayCanvas = document.getElementById('overlayCanvas');
     const overlayCtx = overlayCanvas.getContext('2d');
 
     const waterfallCanvas2 = document.getElementById('waterfallCanvas2');
-    const waterfallCtx2 = waterfallCanvas2.getContext('2d', { willReadFrequently: true });
+    const waterfallCtx2 = waterfallCanvas2.getContext("2d");
     
     const overlayCanvas2 = document.getElementById('overlayCanvas2');
     const overlayCtx2 = overlayCanvas2.getContext('2d');
 
     const labelCanvas = document.getElementById('xlabelCanvas');
-    const labelCtx = labelCanvas.getContext('2d');
 
-    labelCtx.fillStyle = 'black';
-    labelCtx.fillRect(0, 0, labelCanvas.width, labelCanvas.height);
-    waterfallCtx.fillStyle = 'lightgrey';
-    waterfallCtx.fillRect(0, 0, waterfallCanvas.width, waterfallCanvas.height);
-    waterfallCtx2.fillStyle = 'lightgrey';
-    waterfallCtx2.fillRect(0, 0, waterfallCanvas2.width, waterfallCanvas2.height);
+    clearWaterfall(waterfallCtx);
+    clearWaterfall(waterfallCtx2);
     drawTuningLine();
 
     function ftToM(ft) { return ft * 0.3048; }
@@ -732,29 +582,259 @@
         }
     }
 
-    function updateUpperWaterfallHeight() {
-        const targetH = isAdsbSelected() ? WF_HEIGHT_ADSB : WF_HEIGHT_NORMAL;
+    const bandSpectrum = document.getElementById("bandSpectrum");
+    const zoomSpectrum = document.getElementById("zoomSpectrum");
+    let hasBandSpectrum = false;
+    let hasZoomSpectrum = false;
+    let receiverReady = false;
+    let plotColors;
+    const frequencyFormat = new Intl.NumberFormat("de-DE", {
+        minimumFractionDigits: 6, maximumFractionDigits: 6, useGrouping: false,
+    });
 
-        // WICHTIG: nur wenn sich wirklich was ändert
-        if (upperWfHeightCurrent === targetH) return;
-        upperWfHeightCurrent = targetH;
+    function setConnectionState(text, state = "idle") {
+        const indicator = document.getElementById("connectionState");
+        if (indicator.value !== text) indicator.value = text;
+        indicator.dataset.state = state;
+        receiverReady = state === "live";
+        if (!receiverReady) {
+            document.getElementById("freq").value = "—";
+            updateSignalStrength(null);
+        }
+    }
 
-        // Canvas-Größen setzen (Achtung: löscht den Inhalt -> deshalb nur beim Wechsel!)
-        waterfallCanvas.height = targetH;
-        overlayCanvas.height   = targetH;
+    function sizePlot(canvas) {
+        const bounds = canvas.getBoundingClientRect();
+        if (!bounds.width || !bounds.height) return null;
+        const ratio = Math.min(2, window.devicePixelRatio || 1);
+        const physicalWidth = Math.round(bounds.width * ratio);
+        const physicalHeight = Math.round(bounds.height * ratio);
+        if (canvas.width !== physicalWidth || canvas.height !== physicalHeight) {
+            canvas.width = physicalWidth;
+            canvas.height = physicalHeight;
+        }
+        const context = canvas.getContext("2d");
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
+        return { context, width: physicalWidth / ratio, height: physicalHeight / ratio };
+    }
 
-        // Container-Höhe setzen
-        const container = waterfallCanvas.closest(".canvas-container");
-        if (container) container.style.height = targetH + "px";
+    function drawSpectrum(canvas, bins, marker) {
+        const plot = sizePlot(canvas);
+        if (!plot) return;
+        const { context, width, height } = plot;
+        const min = -145, max = -75;
+        const yFor = value => (max - Math.max(min, Math.min(max, value))) * height / (max - min);
+        const divisions = width < 450 ? 4 : 8;
+        context.fillStyle = plotColors.plot;
+        context.fillRect(0, 0, width, height);
+        context.lineWidth = 1;
+        context.strokeStyle = plotColors.grid;
+        context.beginPath();
+        for (let i = 1; i < divisions; i++) {
+            const x = width * i / divisions;
+            context.moveTo(x, 0);
+            context.lineTo(x, height);
+        }
+        for (const level of [-80, -100, -120, -140]) {
+            const y = yFor(level);
+            context.moveTo(0, y);
+            context.lineTo(width, y);
+        }
+        context.stroke();
 
-        // Neu initialisieren
-        waterfallCtx.fillStyle = "lightgrey";
-        waterfallCtx.fillRect(0, 0, waterfallCanvas.width, targetH);
+        if (bins) {
+            context.beginPath();
+            for (let i = 0; i < bins.length; i++) {
+                const x = i * width / (bins.length - 1);
+                const y = yFor(bins[i]);
+                if (i === 0) context.moveTo(x, y);
+                else context.lineTo(x, y);
+            }
+            context.lineWidth = 1.2;
+            context.strokeStyle = plotColors.trace;
+            context.stroke();
+            context.lineTo(width, height);
+            context.lineTo(0, height);
+            context.closePath();
+            context.fillStyle = plotColors.fill;
+            context.fill();
+        }
+        if (marker !== null) {
+            const x = Math.max(1, Math.min(width - 1, marker * width));
+            context.beginPath();
+            context.moveTo(x, 0);
+            context.lineTo(x, height);
+            context.strokeStyle = plotColors.accent;
+            context.stroke();
+        }
+        context.textAlign = "left";
+        context.textBaseline = "middle";
+        context.font = "10px ui-monospace, monospace";
+        for (const level of [-80, -100, -120, -140]) {
+            const y = Math.max(7, Math.min(height - 7, yFor(level) - 6));
+            context.fillStyle = plotColors.plot;
+            context.fillRect(5, y - 6, 27, 12);
+            context.fillStyle = plotColors.muted;
+            context.fillText(String(level), 7, y);
+        }
+    }
 
-        overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    function drawFrequencyAxis(canvas, start, end, tunedFrequency) {
+        const plot = sizePlot(canvas);
+        if (!plot) return;
+        const { context, width, height } = plot;
+        context.fillStyle = plotColors.plot;
+        context.fillRect(0, 0, width, height);
+        if (!receiverReady || end <= start) return;
+        const divisions = width < 390 ? 2 : width < 650 ? 4 : 8;
+        context.font = "11px ui-monospace, monospace";
+        context.textBaseline = "middle";
+        for (let i = 0; i <= divisions; i++) {
+            const fraction = i / divisions;
+            const x = width * fraction;
+            const hz = start + (end - start) * fraction;
+            context.textAlign = i === 0 ? "left" : i === divisions ? "right" : "center";
+            context.fillStyle = tunedFrequency === hz ? plotColors.accent : plotColors.muted;
+            context.fillText((hz / 1e6).toFixed(3).replace(".", ","), x + (i === 0 ? 8 : i === divisions ? -8 : 0), height / 2);
+        }
+    }
+
+    function bandRatio() {
+        const bandwidth = bigFFTendQRG - bigFFTstartQRG;
+        return receiverReady && !isAdsbSelected() && bandwidth > 0 ? freqOffset / bandwidth : null;
+    }
+
+    function refreshPlots() {
+        const adsb = isAdsbSelected();
+        const start = adsb ? 1089000000 : bigFFTstartQRG;
+        const end = adsb ? 1091000000 : bigFFTendQRG;
+        const center = configData[0] + configData[1];
+        drawFrequencyAxis(label480Canvas, start, end);
+        drawFrequencyAxis(labelCanvas, center - 24000, center + 24000, center);
+        drawSpectrum(bandSpectrum, hasBandSpectrum ? fftData : null, bandRatio());
+        drawSpectrum(zoomSpectrum, hasZoomSpectrum ? ssbData : null, receiverReady ? .5 : null);
+    }
+
+    function refreshReadout() {
+        const adsb = isAdsbSelected();
+        const start = adsb ? 1089000000 : bigFFTstartQRG;
+        const end = adsb ? 1091000000 : bigFFTendQRG;
+        const center = adsb ? 1090000000 : configData[0] + configData[1];
+        document.getElementById("freq").value = frequencyFormat.format(center / 1e6);
+        const format = hz => (hz / 1e6).toFixed(3).replace(".", ",");
+        document.getElementById("bandSpan").value = `${format(start)}–${format(end)} MHz`;
+        document.getElementById("zoomSpan").value = `${format(center - 24000)}–${format(center + 24000)} MHz`;
+        refreshPlots();
+    }
+
+    function applyTheme(theme) {
+        document.documentElement.dataset.theme = theme;
+        for (const button of document.querySelectorAll("[data-set-theme]"))
+            button.setAttribute("aria-pressed", String(button.dataset.setTheme === theme));
+        const style = getComputedStyle(document.documentElement);
+        const color = name => style.getPropertyValue(name).trim();
+        plotColors = {
+            plot: color("--plot"), grid: color("--plot-grid"), muted: color("--muted"),
+            accent: color("--accent"), trace: color("--trace"), fill: color("--trace-fill"),
+        };
+        refreshPlots();
+    }
+
+    function setupConsole() {
+        for (const button of document.querySelectorAll("[data-set-theme]")) {
+            button.addEventListener("click", () => {
+                selectedTheme = button.dataset.setTheme;
+                try { localStorage.setItem(themePreferenceKey, selectedTheme); } catch { /* Session preference. */ }
+                applyTheme(selectedTheme);
+            });
+        }
+        systemTheme.addEventListener("change", event => {
+            if (selectedTheme === null) applyTheme(event.matches ? "dark" : "light");
+        });
+        if (window.matchMedia("(max-width: 640px)").matches) {
+            document.getElementById("audioSettings").open = false;
+            document.getElementById("memorySettings").open = false;
+        }
+        const volume = document.getElementById("volumeControl");
+        volume.addEventListener("input", () => {
+            document.getElementById("volumeValue").value = `${Math.round(volume.value * 100)} %`;
+            if (audioGain) audioGain.gain.value = Number(volume.value);
+        });
+        resizeWaterfalls();
+        applyTheme(document.documentElement.dataset.theme);
+        if (window.ResizeObserver) {
+            const plots = new ResizeObserver(refreshPlots);
+            plots.observe(document.querySelector(".charts"));
+            const waterfalls = new ResizeObserver(resizeWaterfalls);
+            for (const canvas of [waterfallCanvas, waterfallCanvas2]) waterfalls.observe(canvas.parentElement);
+        } else {
+            window.addEventListener("resize", () => {
+                resizeWaterfalls();
+                refreshPlots();
+            });
+        }
+    }
+
+    const waterfallPalette = (() => {
+        const stops = [[9, 15, 29], [25, 44, 88], [38, 99, 148], [61, 159, 155], [227, 187, 108], [255, 240, 191]];
+        return Array.from({ length: 256 }, (_, index) => {
+            const position = index / 255 * (stops.length - 1);
+            const lower = Math.min(Math.floor(position), stops.length - 2);
+            const mix = position - lower;
+            const rgb = stops[lower].map((color, channel) => Math.round(color + (stops[lower + 1][channel] - color) * mix));
+            return `rgb(${rgb.join(",")})`;
+        });
+    })();
+
+    function valueToRGBColor(value, minVal, maxVal) {
+        if (!Number.isFinite(value)) return waterfallPalette[0];
+        const normalized = Math.max(0, Math.min(1, (value - minVal) / Math.max(1, maxVal - minVal)));
+        return waterfallPalette[Math.round(Math.sqrt(normalized) * 255)];
+    }
+
+    function tuneAt(event, fine) {
+        if (!receiverReady || isAdsbSelected()) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        const fraction = (event.clientX - bounds.left) / bounds.width;
+        if (fraction < 0 || fraction > 1) return;
+        const offset = fine ? freqOffset + (fraction - .5) * 48000 : fraction * (bigFFTendQRG - bigFFTstartQRG);
+        freqOffset = clampFrequency(Math.round(offset));
+        sendFreqOffsetToServer(freqOffset);
         drawTuningLine();
     }
 
+    function clearWaterfall(context) {
+        context.fillStyle = "#090f1d";
+        context.fillRect(0, 0, context.canvas.width, context.canvas.height);
+    }
+
+    function resizeWaterfall(canvas, context, overlay) {
+        const height = canvas.clientHeight;
+        if (!height || height === canvas.height) return false;
+
+        // Match one stored scan line to one visible pixel, including after a resize.
+        const history = document.createElement("canvas");
+        history.width = canvas.width;
+        history.height = Math.min(canvas.height, height);
+        history.getContext("2d").drawImage(canvas, 0, 0);
+        canvas.height = overlay.height = height;
+        clearWaterfall(context);
+        context.drawImage(history, 0, 0);
+        return true;
+    }
+
+    function resizeWaterfalls() {
+        const bandChanged = resizeWaterfall(waterfallCanvas, waterfallCtx, overlayCanvas);
+        const zoomChanged = resizeWaterfall(waterfallCanvas2, waterfallCtx2, overlayCanvas2);
+        if (bandChanged || zoomChanged) drawTuningLine();
+    }
+
+    function setWaterfallMode(adsb) {
+        if (showingAdsbWaterfall === adsb) return;
+        showingAdsbWaterfall = adsb;
+        clearWaterfall(waterfallCtx);
+        drawTuningLine();
+    }
 
     function colorFromIcao(hex) {
         // hex ist z.B. "3C4B26" -> wird #3C4B26
@@ -869,6 +949,7 @@
             reconnectTimer = null;
             document.getElementById("bandBox").disabled = true;
             globalThis.ReceiverPresets?.reset();
+            setConnectionState("Rufzeichen eingeben");
             document.getElementById("ft8Status").textContent = "Bitte Rufzeichen eingeben";
             ft8DialHz = null;
             audioQueue = [];
@@ -927,6 +1008,7 @@
             globalThis.NoiseReductionControl?.connect(connection);
             globalThis.FMSquelchControl?.connect(connection);
             console.log("WebSocket connected!");
+            setConnectionState("Verbindung wird aufgebaut …");
             document.getElementById("ft8Status").textContent = "Warte auf Empfänger …";
         };
 
@@ -950,6 +1032,7 @@
             document.getElementById("bandBox").disabled = true;
             console.log("WebSocket disconnected. Attempting to reconnect...");
             ft8DialHz = null;
+            setConnectionState("Verbindung unterbrochen", "error");
             document.getElementById("ft8Status").textContent = "Verbindung unterbrochen";
             retryConnection();
         };
@@ -987,9 +1070,8 @@
     // Function to update FFT data and draw it
     let linecnt = 0;
     function draw() {
-        // Shift down the current pixels by 1 row to make space for new data
-        const imageData = waterfallCtx.getImageData(0, 0, waterfallCanvas.width, waterfallCanvas.height);
-        waterfallCtx.putImageData(imageData, 0, 1);
+        // Move the existing history down one row without reading it into JavaScript.
+        waterfallCtx.drawImage(waterfallCanvas, 0, 1);
 
         // If the bandchanged is not -1, draw a white line across the top row
         if (bandchanged !== -1 && linecnt == 0) {
@@ -1059,9 +1141,8 @@
 
     // Function to update lower FFT data and draw it
     function draw_ssb() {
-        // Shift down the current pixels by 1 row to make space for new data
-        const imageData = waterfallCtx2.getImageData(0, 0, waterfallCanvas2.width, waterfallCanvas2.height);
-        waterfallCtx2.putImageData(imageData, 0, 1);
+        // Move the existing history down one row without reading it into JavaScript.
+        waterfallCtx2.drawImage(waterfallCanvas2, 0, 1);
 
         // Find the minimum value in the current FFT data
         let noiseFloor = calculateNoiseFloor(fftData);
@@ -1326,8 +1407,7 @@
         tbody.innerHTML = rows.map(a => {
             const stale = a._seenCalc > 30;
             const isNew = (Date.now() / 1000 - (a._firstSeenUnix || 0)) < 3;
-            const rowStyle = isNew ? 'style="background:#e8ffe8;"' :
-                            (stale ? 'style="color:#999; background:#f7f7f7;"' : '');
+            const rowStyle = isNew ? 'class="aircraft-new"' : (stale ? 'class="aircraft-stale"' : '');
             const metric = isMetric();
 
             let altFt = (a.alt_baro ?? a.alt_geom ?? "");
@@ -1737,6 +1817,8 @@
                 fftData = new Float32Array(data, 4, 1024); // Store the remaining 1024 values
                 fftData = processWaterfallLine(fftData);
                 draw();
+                hasBandSpectrum = true;
+                drawSpectrum(bandSpectrum, fftData, bandRatio());
             }
 
             if(idvalue < 1.5 && idvalue > 0.5) {
@@ -1744,6 +1826,8 @@
                 ssbData = new Float32Array(data, 4, 1024); // Store the remaining 1024 values
                 ssbData = processWaterfallLineSSB(ssbData);
                 draw_ssb();
+                hasZoomSpectrum = true;
+                drawSpectrum(zoomSpectrum, ssbData, receiverReady ? .5 : null);
             }
 
             if(idvalue < 2.5 && idvalue > 1.5) {
@@ -1775,10 +1859,10 @@
                 }
                 if (authentication) {
                     document.getElementById("infocontent").innerHTML = "aktuell eingeloggte Benutzer:<BR>" + userlist.toUpperCase();
-                    document.getElementById("infocontent").style.color = "black";
+                    document.getElementById("infocontent").dataset.state = "";
                 } else {
                     document.getElementById("infocontent").innerHTML = "<b>Bitte mit Rufzeichen und Passwort identifizieren!</b>";
-                    document.getElementById("infocontent").style.color = "red";
+                    document.getElementById("infocontent").dataset.state = "error";
                 }
             }
 
@@ -1800,194 +1884,6 @@
             }
         } else {
             console.error("Data length is not 4100", data.byteLength);
-        }
-    }
-
-    function roundToNearest(a) {
-        const options = [1000, 5000, 12500, 25000];
-        let closest = options[0];
-        let minDifference = Math.abs(a - options[0]);
-
-        for (let i = 1; i < options.length; i++) {
-            let difference = Math.abs(a - options[i]);
-            if (difference < minDifference) {
-                minDifference = difference;
-                closest = options[i];
-            }
-        }
-
-        return closest;
-    }
-
-    // make x labels for upper waterfall
-    function makeLabels480(configData) {
-        // ===== ADS-B Sonderfall: feste Skala 1089 .. 1091 MHz =====
-        if (isAdsbSelected()) {
-            label480Ctx.fillStyle = 'black';
-            label480Ctx.fillRect(0, 0, label480Canvas.width, label480Canvas.height);
-
-            label480Ctx.font = "10px Arial";
-            label480Ctx.fillStyle = "yellow";
-            label480Ctx.textAlign = "center";
-            label480Ctx.textBaseline = "middle";
-
-            const h = label480Canvas.height / 2;
-
-            const startMHz = 1089.0;
-            const endMHz   = 1091.0;
-            const stepMHz  = 0.25;      // 250 kHz
-            const spanMHz  = endMHz - startMHz;
-
-            for (let f = startMHz; f <= endMHz + 1e-6; f += stepMHz) {
-                const rel = (f - startMHz) / spanMHz;   // 0 .. 1
-                const x = rel * label480Canvas.width;
-
-                // Rand etwas einrücken
-                let xx = x;
-                if (f === startMHz) xx += 8;
-                if (f === endMHz)   xx -= 8;
-
-                // Textformat
-                let text;
-                if (Number.isInteger(f)) {
-                    text = f.toFixed(0);        // 1089 / 1090 / 1091
-                } else {
-                    text = f.toFixed(2);        // 1089.25 etc.
-                }
-
-                label480Ctx.save();
-                label480Ctx.translate(xx, h);
-                label480Ctx.rotate(-Math.PI / 2);
-                label480Ctx.fillText(text, -7, 0);
-                label480Ctx.restore();
-            }
-
-            return;
-        }
-        // ===== ENDE ADS-B =====
-        
-        label480Ctx.fillStyle = 'black';
-        label480Ctx.fillRect(0, 0, label480Canvas.width, label480Canvas.height);
-
-        // Set font properties for the labels
-        label480Ctx.font = "10px Arial";
-        label480Ctx.fillStyle = "yellow";
-        label480Ctx.textAlign = "center";
-        label480Ctx.textBaseline = "middle"; // Center the text vertically when rotated
-
-        // Frequency step (25 kHz)
-        let step = (bigFFTendQRG - bigFFTstartQRG) / 20;
-        step = roundToNearest(step);
-
-        // Total number of pixels and frequency range in Hz
-        const totalPixels = 1024;
-        const totalFreqRange = bigFFTendQRG - bigFFTstartQRG;
-
-        // Calculate pixels per Hz
-        const pixelsPerHz = totalPixels / totalFreqRange;
-
-        // Loop through frequencies from left (bigFFTstartQRG) to right (bigFFTendQRG)
-        for (let freq = bigFFTstartQRG; freq <= bigFFTendQRG; freq += step) {
-            let x = (freq - bigFFTstartQRG) * pixelsPerHz;
-            if(freq == bigFFTstartQRG) x += 5;
-            if(freq == bigFFTendQRG) x -= 5;
-            const freqMHz = (freq / 1e6).toFixed(3); // Convert frequency to MHz for display
-
-            label480Ctx.save();
-            label480Ctx.translate(x, label480Canvas.height / 2);
-            label480Ctx.rotate(-Math.PI / 2);
-            label480Ctx.fillText(freqMHz, -7, 0);
-            label480Ctx.restore();
-        }
-    }
-
-    // make x labels for lower waterfall
-    function makeLabels48(configData) {
-        let tunedfrequency = configData[0];
-        const shiftfrequency = configData[1];
-
-        tunedfrequency += shiftfrequency;
-
-        const tunedfrequencyMHz = (tunedfrequency / 1e6).toFixed(6);
-
-        // Split the frequency into integer and decimal parts
-        const [integerPart, decimalPart] = tunedfrequencyMHz.split('.');
-
-        // Combine the formatted integer part and decimal part
-        const formattedFrequency = integerPart + ',' + decimalPart.slice(0,3) + "." + decimalPart.slice(3,6);
-
-        // Write the formatted result into the div with id "freq"
-        const freqDiv = document.getElementById("freq");
-        if (isAdsbSelected()) {
-            freqDiv.innerText = (tunedfrequency / 1e6).toFixed(1).replace('.', ',') + " MHz";
-        } else {
-            freqDiv.innerText = formattedFrequency + " MHz";
-        }
-
-        //labelCtx.clearRect(0, 0, labelCanvas.width, labelCanvas.height);
-        labelCtx.fillStyle = 'black';
-        labelCtx.fillRect(0, 0, labelCanvas.width, labelCanvas.height);
-
-        draw_connlines();
-
-        // Set font properties for the labels
-        labelCtx.font = "10px Arial";
-        labelCtx.fillStyle = "yellow";
-        labelCtx.textAlign = "center";
-        labelCtx.textBaseline = "middle"; // Center the text vertically when rotated
-
-        // Frequency range   
-        const freqRange = 24000; // ±24 kHz from the tuned frequency
-        const minFreq = tunedfrequency - freqRange;
-        const maxFreq = tunedfrequency + freqRange;
-
-        // Frequency step (2.5 kHz)
-        const step = 2500; // 2.5 kHz
-
-        // Total number of pixels and frequency range in Hz
-        const totalPixels = 1024;
-        const totalFreqRange = 2 * freqRange; // 480 kHz total (24 kHz left + 24 kHz right)
-
-        // Calculate pixels per Hz
-        const pixelsPerHz = totalPixels / totalFreqRange; // pixels per Hz
-
-        // Draw the tuned frequency in the middle of the canvas
-        const middleX = totalPixels / 2; // X-coordinate for the center
-        labelCtx.save();
-        labelCtx.translate(middleX, labelCanvas.height / 2);
-        labelCtx.rotate(-Math.PI / 2);
-        labelCtx.fillText(tunedfrequencyMHz, -4, 0); // Tuned frequency in the middle
-        labelCtx.restore();
-
-        // Start from the center and move outward
-        let leftFreq = tunedfrequency - step;
-        let rightFreq = tunedfrequency + step;
-        
-        // Loop through the frequencies symmetrically outward
-        while (leftFreq >= minFreq || rightFreq <= maxFreq) {
-            if (leftFreq >= minFreq) {
-                // Draw the left frequency label
-                const xLeft = (leftFreq - minFreq) * pixelsPerHz;
-                const leftFreqMHz = (leftFreq / 1e6).toFixed(6);
-                labelCtx.save();
-                labelCtx.translate(xLeft, labelCanvas.height / 2);
-                labelCtx.rotate(-Math.PI / 2);
-                labelCtx.fillText(leftFreqMHz, -4, 0);
-                labelCtx.restore();
-                leftFreq -= step; // Move to the next left frequency
-            }
-
-            if (rightFreq <= maxFreq) {
-                // Draw the right frequency label
-                const xRight = (rightFreq - minFreq) * pixelsPerHz;
-                const rightFreqMHz = (rightFreq / 1e6).toFixed(6);
-                labelCtx.save();
-                labelCtx.translate(xRight, labelCanvas.height / 2);
-                labelCtx.rotate(-Math.PI / 2);
-                labelCtx.fillText(rightFreqMHz, -4, 0);
-                labelCtx.restore();
-                rightFreq += step; // Move to the next right frequency
-            }
         }
     }
 
@@ -2033,107 +1929,22 @@
         document.getElementById('bandBox').value = fidx;
         updateInfoVisibility();
 
-        // shift to the band start qrg
-        // configData[1]: -240000 ... +240000
-        // FreqOffset: offset in Hz from band start
-        //console.log("qrgidx:",configData[1]);
-        FreqOffset = configData[1] + 240000;
+        const tunedFrequency = configData[0] + configData[1];
+        freqOffset = clampFrequency(tunedFrequency - bigFFTstartQRG);
 
         // op mode
         usblsb = configData[2];
         document.getElementById('modeBox').value = usblsb;
         globalThis.FMSquelchControl?.onMode(usblsb);
-        if (usblsb === 3) freqOffset = clampFrequency(configData[0] + configData[1] - bigFFTstartQRG);
 
         usernumber = configData[5];
         const selectBox = document.getElementById("bandBox");
         selectBox.disabled = usernumber !== 1 || !isValidCallsign(getCallsign());
 
+        setConnectionState("Verbunden", "live");
         drawTuningLine();
-        draw_connlines();
-
-        makeLabels480(configData);
-        makeLabels48(configData);
+        refreshReadout();
         globalThis.ReceiverPresets?.onConfig(configData, fidx);
-    }
-
-    // Color mapping function with fine-tuned RGB transitions
-    function valueToRGBColor(value, minVal, maxVal) { 
-
-        // If the value is below minVal, return black (or any other color for out-of-range values)
-        if (value < minVal) {
-            return 'rgb(0, 0, 0)';  // Black for values below minVal
-        }
-
-        // Normalize the value between minVal and maxVal to a range of 0 to 1
-        let normalizedValue = (value - minVal) / (maxVal - minVal);
-        normalizedValue = Math.pow(normalizedValue, 1.5);  // Apply non-linear scaling
-
-        let r = 0, g = 0, b = 0;
-        let clamp1 = 0.1, clamp2 = 0.25, clamp3 = 0.5;
-
-        if (normalizedValue < clamp1) {
-            // Lower values: transition from black to dark blue to cyan
-            g = Math.floor((normalizedValue / clamp1) * 255);
-            b = Math.floor((normalizedValue / clamp1) * 255);
-        } else if (normalizedValue < clamp2) {
-            // Mid-low values: transition from cyan to light green
-            g = 255;
-            b = Math.floor(((clamp2 - normalizedValue) / (clamp2 - clamp1)) * 255);
-        } else if (normalizedValue < clamp3) {
-            // Mid-high values: transition from green to red
-            r = Math.floor((normalizedValue - clamp2) / (clamp3 - clamp2) * 255);
-            g = 255;
-        } else {
-            // Higher values: transition from red to yellow
-            r = 255;
-            g = Math.floor(((1 - normalizedValue) / (1 - clamp3)) * 255);
-        }
-
-        return `rgb(${r}, ${g}, ${b})`;
-    }
-
-    // Function to handle mouse press and draw the tuning line
-    function mousePressed(event) {
-        // Get the mouse X and Y positions relative to the canvas
-        let rect = waterfallCanvas.getBoundingClientRect();
-        let mouseX = event.clientX - rect.left;
-        let mouseY = event.clientY - rect.top;
-
-        // Check if the mouse is within the canvas
-        if (mouseX >= 0 && mouseX < waterfallCanvas.width && mouseY >= 0 && mouseY < waterfallCanvas.height) {
-            // Map the mouseX position (0 to width) to the FFT index (0 to 1024)
-            const screenIndex = Math.floor((mouseX / waterfallCanvas.width) * 1024);
-            // Map the screen index to the frequency offset above bigFFTstartQRG
-            freqOffset = Math.floor((screenIndex / 1024) * (bigFFTendQRG - bigFFTstartQRG));
-            freqOffset = clampFrequency(freqOffset);
-
-            // Send the freqOffset via WebSocket
-            sendFreqOffsetToServer(freqOffset);
-        }
-    }
-
-    function mousePressed2(event) {
-        // Get the mouse X and Y positions relative to the canvas
-        let rect = waterfallCanvas2.getBoundingClientRect();
-        let mouseX = event.clientX - rect.left;
-        let mouseY = event.clientY - rect.top;
-        
-        // Check if the mouse is within the canvas
-        if (mouseX >= 0 && mouseX < waterfallCanvas2.width && mouseY >= 0 && mouseY < waterfallCanvas2.height) {
-            // Map the mouseX position (0 to width) to the FFT index (0 to 1024)
-            const screenIndex2 = Math.floor((mouseX / waterfallCanvas2.width) * 1024);
-            // Map the screenIndex2 to a frequency offset (width is 48kHz)
-            const freqOffset2 = Math.floor((screenIndex2 / 1024) * 48000);
-            // 0 is in the middle
-            const freqOffset2Centered = freqOffset2 - 24000;
-            // adjust the freqOffset
-            freqOffset += freqOffset2Centered;
-            freqOffset = clampFrequency(freqOffset);
-
-            // Send the clicked index via WebSocket
-            sendFreqOffsetToServer(freqOffset);
-        }
     }
 
     function clampFrequency(value) {
@@ -2142,6 +1953,7 @@
 
     // Function to handle mouse wheel event for tuning adjustments
     function handleMouseWheel(event) {
+        if (!receiverReady || isAdsbSelected()) return;
         event.preventDefault();
 
         // Update tuning index based on wheel delta
@@ -2164,6 +1976,7 @@
     }
 
     function handleMouseWheel2(event) {
+        if (!receiverReady || isAdsbSelected()) return;
         event.preventDefault();
 
         // Update tuning index based on wheel delta
@@ -2281,76 +2094,25 @@
 
         overlayCtx2.fillRect(rectX2, 0, rectWidth2, rectHeight2);
 
-        draw_connlines();
-    }
-
-    function draw_connlines()
-    {
-        let x = getPixelIndex(freqOffset);
-        let x2 = (512 / 1024) * overlayCanvas2.width;
-
-        const bandWidth = bigFFTendQRG - bigFFTstartQRG;
-        const upwidth = usblsb === 3 ? amHalfWidth(overlayCanvas, bandWidth) : 480000 * 6 / bandWidth;
-        const downwidth = usblsb === 3 ? amHalfWidth(overlayCanvas2, 48000) : 64;
-        const centered = usblsb === 2 || usblsb === 3;
-        const xo1 = centered ? x - upwidth : x;
-        const xo2 = usblsb === 0 ? x - upwidth : x + upwidth;
-        const xu1 = centered ? x2 - downwidth : x2;
-        const xu2 = usblsb === 0 ? x2 - downwidth : x2 + downwidth;
-
-        // Set the stroke style for the lines (grey color)
-        labelCtx.strokeStyle = '#404040';
-        labelCtx.lineWidth = 2; // Set line width (optional)
-
-        // Begin drawing the first line
-        labelCtx.beginPath();
-        labelCtx.moveTo(xo1, 0); // Start at (xo1, 0)
-        labelCtx.lineTo(xu1, labelCanvas.height); // End at (xu1, canvasHeight)
-        labelCtx.stroke(); // Draw the line
-
-        // Begin drawing the second line
-        labelCtx.beginPath();
-        labelCtx.moveTo(xo2, 0); // Start at (xo2, 0)
-        labelCtx.lineTo(xu2, labelCanvas.height); // End at (xu2, canvasHeight)
-        labelCtx.stroke(); // Draw the line
     }
 
     function updateInfoVisibility() {
-        const infoc = document.querySelector(".infocontainer");
-        const adsbC = document.getElementById("adsbContainer");
-
-        // unterer Wasserfall + Labels (xlabelCanvas-Bereich)
-        const lowerWf = document.getElementById("lowerWaterfall");
-        const lowerLbl = document.getElementById("lowerWaterfallLabels");
-
-        if (isAdsbSelected()) {
+        const adsb = isAdsbSelected();
+        document.getElementById("zoomPanel").hidden = adsb;
+        document.getElementById("ft8Panel").hidden = adsb;
+        document.getElementById("adsbContainer").hidden = !adsb;
+        document.getElementById("bandTitle").textContent = adsb ? "ADS-B Spektrum" : "Bandübersicht";
+        if (adsb) {
             if (!adsbSortCol) {
                 adsbSortCol = "dist";
                 adsbSortDir = 1;
-
-                const th = document.querySelector('#adsbTable th[data-col="dist"]');
-                if (th) th.classList.add("sort-asc");
+                document.querySelector('#adsbTable th[data-col="dist"]')?.classList.add("sort-asc");
             }
-            if (infoc) infoc.style.display = "none";
-            if (adsbC) adsbC.style.display = "block";
-
-            // unteren Wasserfall ausblenden
-            if (lowerWf) lowerWf.style.display = "none";
-            if (lowerLbl) lowerLbl.style.display = "none";
-
             updateAdsbHeaders();
             renderAdsbTable();
-            const mapCb = document.getElementById("mapCheckbox");
-            if (mapCb && mapCb.checked) showAdsbMap(true);
-        } else {
-            if (adsbC) adsbC.style.display = "none";
-            if (infoc) infoc.style.display = "grid";
-
-            // unteren Wasserfall wieder einblenden
-            if (lowerWf) lowerWf.style.display = "block";
-            if (lowerLbl) lowerLbl.style.display = "flex"; // passt zu deinem .gui-space1 flex-layout
+            if (document.getElementById("mapCheckbox").checked) showAdsbMap(true);
         }
-        updateUpperWaterfallHeight();
+        setWaterfallMode(adsb);
     }
 
     function updateBand() {
@@ -2379,130 +2141,72 @@
         if (usblsb === 3) drawTuningLine();
     }
     
-    // Attach event listeners
-    waterfallCanvas.addEventListener('mousedown', mousePressed);
-    waterfallCanvas.addEventListener('wheel', handleMouseWheel);  // Mouse wheel event listener
-    waterfallCanvas2.addEventListener('wheel', handleMouseWheel2);  // Mouse wheel event listener
-
-    waterfallCanvas2.addEventListener('mousedown', mousePressed2);
-
-    // =============== AUDIO Playback ===================
-    let audioContext;
-    let scriptNode;
-    let websocket;
-    let defaultlevel;
-
-    function initAudio() {
-        // Create a new AudioContext with the desired sample rate (8000 S/s)
-        audioContext = new (window.AudioContext || window.webkitAudioContext)({
-            sampleRate: 8000
-        });
-
-        // Ensure the AudioContext is running (it may be in 'suspended' state initially)
-        if (audioContext.state === 'suspended') {
-            audioContext.resume().then(() => {
-                console.log('AudioContext resumed');
-            });
-        }
-
-        // Create a GainNode for volume control
-        gainNode = audioContext.createGain();
-        gainNode.gain.value = 0.5;  // Set initial volume to 50%
-
-        // Create ScriptProcessorNode to handle real-time audio
-        const bufferSize = 1024;  // Match the size of your audio packets
-        scriptNode = audioContext.createScriptProcessor(bufferSize, 1, 1);
-/*
-        // Create an oscillator to ensure audio context is processing
-        const oscillator = audioContext.createOscillator();
-        oscillator.frequency.setValueAtTime(440, audioContext.currentTime); // A4 tone
-        oscillator.connect(audioContext.destination);
-        oscillator.start();
-        oscillator.stop(audioContext.currentTime + 0.5);  // Play for 0.5 seconds
-*/
-        // Handle audio processing
-        scriptNode.onaudioprocess = (audioProcessingEvent) => {
-            const outputBuffer = audioProcessingEvent.outputBuffer;
-            const outputData = outputBuffer.getChannelData(0);
-
-            if (audioQueue.length > 0) {
-
-                const audioData = audioQueue.shift(); // Take the next chunk from the queue
-                // Fill output buffer with audio data
-                for (let i = 0; i < outputData.length; i++) {
-                    outputData[i] = audioData[i] || 0; // If there's no data, fill with silence
-                }
-            } else {
-                //console.log('Queue is empty, outputting silence');
-                // If queue is empty, output silence
-                for (let i = 0; i < outputData.length; i++) {
-                    outputData[i] = 0;
-                }
-            }
-        };
-
-        // Connect the ScriptProcessorNode to the GainNode, then to the destination
-        scriptNode.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-
-        if(isFinite(defaultlevel)) {
-            gainNode.gain.value = defaultlevel;
-        }
-
-        // Set up the volume control slider
-        const volumeControl = document.getElementById('volumeControl');
-        volumeControl.addEventListener('input', function() {
-            gainNode.gain.value = this.value;  // Update gain (volume) based on slider value
-        });
+    for (const canvas of [waterfallCanvas, bandSpectrum]) {
+        canvas.addEventListener("click", event => tuneAt(event, false));
+        canvas.addEventListener("wheel", handleMouseWheel, { passive: false });
+    }
+    for (const canvas of [waterfallCanvas2, zoomSpectrum]) {
+        canvas.addEventListener("click", event => tuneAt(event, true));
+        canvas.addEventListener("wheel", handleMouseWheel2, { passive: false });
     }
 
-    
-    function startAudioStream() {
+    let audioContext = null;
+    let audioGain = null;
+
+    async function startAudioStream() {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioContext = new AudioContextClass({ sampleRate: 8000 });
+        audioGain = audioContext.createGain();
+        audioGain.gain.value = Number(document.getElementById("volumeControl").value);
+
+        const processor = audioContext.createScriptProcessor(1024, 1, 1);
+        processor.onaudioprocess = event => {
+            const output = event.outputBuffer.getChannelData(0);
+            const samples = audioQueue.shift();
+            if (samples) output.set(samples);
+            else output.fill(0);
+        };
+        processor.connect(audioGain);
+        audioGain.connect(audioContext.destination);
+        if (audioContext.state === "suspended") await audioContext.resume();
         runAudio = 1;
     }
 
-    function stopAudioStream() {
+    async function stopAudioStream() {
         runAudio = 0;
-        if (audioContext) {
-            audioContext.close();
+        audioQueue.length = 0;
+        const context = audioContext;
+        audioContext = null;
+        audioGain = null;
+        if (context && context.state !== "closed") await context.close();
+    }
+
+    const audioToggle = document.getElementById("audioToggle");
+    const audioState = document.getElementById("audioState");
+    const audioError = document.getElementById("audioError");
+    audioToggle.addEventListener("click", async () => {
+        audioToggle.disabled = true;
+        audioError.hidden = true;
+        try {
+            if (runAudio) await stopAudioStream();
+            else await startAudioStream();
+        } catch (error) {
+            console.error("Audio:", error);
+            await stopAudioStream().catch(closeError => console.error("Audio:", closeError));
+            audioError.hidden = false;
+        } finally {
+            audioToggle.setAttribute("aria-pressed", String(Boolean(runAudio)));
+            audioState.textContent = runAudio ? "ON" : "OFF";
+            audioToggle.disabled = false;
         }
+    });
+
+    function updateSignalStrength(dbm) {
+        const valid = Number.isFinite(dbm) && dbm > -180;
+        document.getElementById("signalMeter").value = valid ? Math.max(0, Math.min(50, dbm + 130)) : 0;
+        document.getElementById("signalValue").value = valid ? `${Math.round(dbm)} dBm` : "— dBm";
     }
 
-    function updateSignalStrength(dBmValue) {
-        const minDbm = -130;
-        const maxDbm = -80;
-        
-        // Convert dBm value to a percentage of the bar height
-        const percentage = ((dBmValue - minDbm) / (maxDbm - minDbm)) * 100;
-        
-        // Update the bar height (instead of width)
-        const barFill = document.getElementById('barFill');
-        barFill.style.height = percentage + '%';
-    }
-
-    function detectMobileDevice() {
-        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-
-        // Check if the user agent is for a mobile device
-        if (/android|iPhone|iPad|iPod|opera mini|IEMobile|WPDesktop/i.test(userAgent)) {
-            // Redirect to the mobile version of the page
-            window.location.href = "fftmobile.html";
-        }
-    }
-
-document.getElementById('audioCheckbox').addEventListener('change', (event) => {
-    if (event.target.checked) {
-        initAudio();
-        startAudioStream();
-    } else {
-        stopAudioStream();
-    }
-});
-
-window.onload = function () {
-    detectMobileDevice();
-};
- 
 // Run sendUserPW every second
 setInterval(sendUserPW, 1000);
 
@@ -2607,27 +2311,7 @@ window.addEventListener("load", () => {
         saveToLocalStorage();
     });
 
-    function toggleMenu() {
-        const menu = document.getElementById("dropdownMenu");
-        menu.style.display = menu.style.display === "block" ? "none" : "block";
-    }
-
-    window.onclick = function(event) {
-        if (!event.target.closest('.menu-icon') && !event.target.closest('.dropdown-menu')) {
-            document.getElementById("dropdownMenu").style.display = "none";
-        }
-    }
-
-    function confirmSettings() {
-    // Perform any actions you need with the selected settings
-    console.log("Settings confirmed:", {
-        nffilter: document.getElementById("nffilter").value,
-    });
-
-    // Close the dropdown menu
-    document.getElementById("dropdownMenu").style.display = "none";
-}
-
+    setupConsole();
 </script>
 
 <script src="receiver-presets.js"></script>

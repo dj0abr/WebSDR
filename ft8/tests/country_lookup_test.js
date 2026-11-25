@@ -73,8 +73,11 @@ class Element {
 
 for (const page of ['index.html', 'fftmobile.html']) {
     const html = fs.readFileSync(path.join(htmlDirectory, page), 'utf8');
-    const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
-    new vm.Script(script);
+    const inlineScripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+    for (const [, code] of inlineScripts) new vm.Script(code);
+    const receiverScript = inlineScripts.find(([, code]) => code.includes('function processFT8Frame('));
+    assert.ok(receiverScript, page);
+    const [, script] = receiverScript;
     const header = html.match(/<table id="ft8Table">\s*<thead>([\s\S]*?)<\/thead>/)[1];
     assert.equal((header.match(/<th\b/g) || []).length, 6);
     assert.ok(header.includes('>Land</th>'));
@@ -82,7 +85,7 @@ for (const page of ['index.html', 'fftmobile.html']) {
     assert.ok(html.includes('src="ft8-country-data.js"'));
     assert.ok(html.includes('src="ft8-countries.js"'));
     assert.ok(html.indexOf('src="ft8-country-data.js"') < html.indexOf('src="ft8-countries.js"'));
-    assert.ok(html.indexOf('src="ft8-countries.js"') < html.indexOf('<script>'));
+    assert.ok(html.indexOf('src="ft8-countries.js"') < receiverScript.index);
     const extract = name => script.match(new RegExp('    function ' + name + '\\([^]*?\\n    }'))[0];
     for (const loaded of [true, false]) {
         const elements = Object.fromEntries(['ft8Status', 'ft8Empty', 'ft8Rows', 'ft8Count'].map(id => [id, new Element(id)]));
